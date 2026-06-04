@@ -1,0 +1,210 @@
+<!DOCTYPE html><html lang='ko'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>Dockerizer — PVC 마운트 아키텍처</title><link rel='stylesheet' href='https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/variable/pretendardvariable-dynamic-subset.min.css'><style>
+:root{--accent:#1d63ed;--accent2:#16b1ff;--accent-soft:#e9f0fe;--ink:#161d2b;--muted:#5d6878;
+--border:#e4e8ef;--bg:#eceff5;--green:#0f7a50;--green-soft:#e6f6ee;--amber:#9a5a08;--red:#d43b3b;}
+*{box-sizing:border-box;}html{scroll-behavior:smooth;}
+body{margin:0;background:var(--bg);color:var(--ink);font-size:16.5px;line-height:1.78;
+font-family:"Pretendard Variable",Pretendard,-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Noto Sans KR",sans-serif;
+-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;}
+.wrap{max-width:940px;margin:0 auto;padding:48px 20px 110px;}
+.card{position:relative;background:#fff;border:1px solid var(--border);border-radius:18px;padding:52px 56px;
+box-shadow:0 1px 2px rgba(16,24,40,.04),0 12px 38px rgba(16,24,40,.07);overflow:hidden;}
+.card::before{content:"";position:absolute;inset:0 0 auto 0;height:5px;background:linear-gradient(90deg,var(--accent),var(--accent2));}
+.eyebrow{font-size:.72rem;font-weight:800;letter-spacing:.18em;color:var(--accent);text-transform:uppercase;margin:4px 0 2px;}
+h1{font-size:2.2rem;line-height:1.25;margin:.05em 0 .55em;letter-spacing:-.02em;font-weight:800;}
+h2{font-size:1.4rem;font-weight:750;margin:2.5em 0 .8em;padding:.1em 0 .1em .7em;border-left:5px solid var(--accent);}
+h3{font-size:1.08rem;margin:1.6em 0 .5em;color:var(--accent);font-weight:750;}
+hr{border:none;border-top:1px solid var(--border);margin:2.6em 0;}
+p,li{font-size:1rem;}strong{font-weight:700;color:#0c1730;}
+ul{padding-left:1.3em;}li{margin:.34em 0;}
+code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;background:#eef1f7;padding:.12em .45em;
+border-radius:6px;font-size:.84em;color:#1452c4;border:1px solid #e1e6f1;}
+pre{margin:1.2em 0;}
+pre code{display:block;white-space:pre;padding:16px 18px;background:#0f172a;color:#e6edf6;border:none;border-radius:12px;overflow:auto;font-size:.88em;line-height:1.6;}
+.tablewrap{overflow-x:auto;margin:1.3em 0;border:1px solid var(--border);border-radius:12px;}
+table{border-collapse:collapse;width:100%;font-size:.95rem;}
+th,td{padding:12px 16px;text-align:left;vertical-align:top;border-bottom:1px solid var(--border);}
+th{background:#f3f6fc;color:#0e213f;font-weight:700;border-bottom:2px solid #dde6f6;}
+tbody tr:last-child td{border-bottom:none;}tbody tr:hover td{background:#f8faff;}
+.diagram{margin:1.8em 0;padding:28px 24px;background:#fbfcfe;border:1px solid var(--border);border-radius:14px;overflow-x:auto;}
+.diagram pre{margin:0;}.diagram pre code{background:#f8faff;color:var(--ink);border:1px solid var(--border);font-size:.82em;line-height:1.55;}
+.note{margin:1.3em 0;padding:16px 20px;background:#fff8e6;border:1px solid #f3e0a8;border-left:5px solid var(--amber);border-radius:0 12px 12px 0;}
+.note strong{color:var(--amber);}
+.note p{margin:.3em 0;font-size:.95rem;}
+.ok{color:var(--green);font-weight:700;}.ng{color:var(--red);font-weight:700;}
+</style></head><body>
+<div class="wrap"><div class="card">
+
+<p class="eyebrow">Dockerizer Architecture</p>
+<h1>PVC 마운트 아키텍처</h1>
+<p>AIPubVolume PVC가 파일 브라우저(Browse API)와 Kaniko 빌드 Pod에서 각각 어떻게 마운트되고, 경로가 어떻게 매핑되는지를 정리한 문서이다.</p>
+<p><strong>최종 갱신:</strong> 2026-06-04</p>
+
+<hr>
+
+<h2>1. 개요</h2>
+<p>Dockerizer의 COPY(Volume) 기능은 사용자의 <strong>AIPubVolume</strong>(PVC)에 있는 파일을 Kaniko 빌드 시 빌드 컨텍스트로 전달한다. 이 과정에서 <strong>세 군데의 Pod/컨테이너</strong>가 동일한 PVC를 서로 다른 경로에 마운트하므로, 경로 정규화 전략이 핵심이다.</p>
+
+<h2>2. PVC를 마운트하는 세 주체</h2>
+
+<div class="tablewrap"><table>
+<thead><tr><th>주체</th><th>Pod 이름 (예시)</th><th>마운트 경로</th><th>읽기/쓰기</th><th>용도</th></tr></thead>
+<tbody>
+<tr>
+  <td><strong>AIPubVolume Pod</strong></td>
+  <td><code>pjw-volume-8b5c4c37</code></td>
+  <td><code>/data</code></td>
+  <td>Read-Write</td>
+  <td>PVC 유틸 Pod. SFTP 등이 이 Pod을 통해 파일을 읽고 쓴다. Browse API도 이 Pod에 <code>exec</code>하여 <code>ls</code>를 실행한다.</td>
+</tr>
+<tr>
+  <td><strong>Browse API</strong><br>(백엔드 서버)</td>
+  <td>-</td>
+  <td><code>/data</code> (exec 대상)</td>
+  <td>Read-Only (ls만 수행)</td>
+  <td>파일 브라우저. AIPubVolume Pod에 exec하여 파일 목록을 조회하고, 사용자에게는 <strong>PVC 루트 기준(<code>/</code>)</strong>의 경로를 반환한다.</td>
+</tr>
+<tr>
+  <td><strong>Kaniko Pod</strong><br>(ImageBuild Job)</td>
+  <td><code>imagebuild-xxxx-job-xxxxx</code></td>
+  <td><code>/build-context</code></td>
+  <td>Read-Only</td>
+  <td>빌드 컨텍스트. Kaniko가 <code>--context=dir:///build-context</code>로 참조하여 COPY 소스 파일을 읽는다.</td>
+</tr>
+</tbody>
+</table></div>
+
+<h2>3. 경로 매핑 흐름</h2>
+
+<h3>3.1 전체 흐름도</h3>
+<div class="diagram"><pre><code>PVC (pjw-volume-8b5c4c37)
+ ├── all_conversations.txt
+ └── temp/
+      └── common.zip
+
+         ┌─────────────────────────────────┐
+         │  AIPubVolume Pod                 │
+         │  PVC → /data                     │
+         │                                  │
+         │  /data/all_conversations.txt     │
+         │  /data/temp/common.zip           │
+         └────────────┬────────────────────┘
+                      │ exec ls
+         ┌────────────┴────────────────────┐
+         │  Browse API (Backend Server)     │
+         │                                  │
+         │  설정: pvc-mount-path = /data    │
+         │                                  │
+         │  사용자 요청 path="/"            │
+         │  → 실제 실행: ls /data           │
+         │  → 반환: all_conversations.txt,  │
+         │          temp/                   │
+         │                                  │
+         │  사용자 선택:                    │
+         │    volumePath="/all_conv...txt"  │
+         └────────────┬────────────────────┘
+                      │ Dockerfile 생성
+         ┌────────────┴────────────────────┐
+         │  Frontend (Dockerfile Editor)    │
+         │                                  │
+         │  volumePath = "/all_conv...txt"  │
+         │  → leading "/" 제거              │
+         │  → COPY all_conversations.txt    │
+         │         /workspace/              │
+         └────────────┬────────────────────┘
+                      │ 빌드 트리거
+         ┌────────────┴────────────────────┐
+         │  Kaniko Pod (ImageBuild Job)     │
+         │                                  │
+         │  PVC → /build-context (RO)       │
+         │  --context=dir:///build-context  │
+         │                                  │
+         │  COPY all_conversations.txt ...  │
+         │  → /build-context/all_conv...txt │
+         │  → 파일 존재 → 빌드 성공        │
+         └─────────────────────────────────┘</code></pre></div>
+
+<h3>3.2 경로 변환 규칙</h3>
+<div class="tablewrap"><table>
+<thead><tr><th>단계</th><th>경로</th><th>설명</th></tr></thead>
+<tbody>
+<tr><td>PVC 내부 (실제)</td><td><code>all_conversations.txt</code></td><td>PVC 루트 기준 상대 경로</td></tr>
+<tr><td>AIPubVolume Pod</td><td><code>/data/all_conversations.txt</code></td><td>Pod 내 절대 경로 (mount path = <code>/data</code>)</td></tr>
+<tr><td>Browse API 반환</td><td><code>/all_conversations.txt</code></td><td>PVC 루트를 <code>/</code>로 정규화 (mount path 제거)</td></tr>
+<tr><td>Dockerfile COPY</td><td><code>all_conversations.txt</code></td><td>leading <code>/</code> 제거한 상대 경로</td></tr>
+<tr><td>Kaniko 빌드 컨텍스트</td><td><code>/build-context/all_conversations.txt</code></td><td>PVC가 <code>/build-context</code>에 마운트됨</td></tr>
+</tbody>
+</table></div>
+
+<h2>4. 핵심 설계 결정</h2>
+
+<h3>4.1 PVC 루트를 <code>/</code>로 통일</h3>
+<p>AIPubVolume Pod의 마운트 경로(<code>/data</code>)는 <strong>Pod의 구현 상세</strong>이지 PVC 내부 구조가 아니다. Browse API는 이 마운트 경로를 숨기고, 사용자에게는 PVC 루트를 <code>/</code>로 보여준다. 이를 통해 <strong>어떤 Pod에서 마운트하든 동일한 경로 체계</strong>를 사용할 수 있다.</p>
+
+<div class="note">
+<p><strong>설정:</strong> <code>dockerizer.volume.pvc-mount-path</code> (기본값: <code>/data</code>)<br>
+AIPubVolume Pod 내 PVC 마운트 경로. Browse API가 이 경로를 PVC 루트(<code>/</code>)로 취급한다. AIPub 플랫폼의 컨벤션이 변경되면 이 설정만 수정하면 된다.</p>
+</div>
+
+<h3>4.2 빌드 컨텍스트를 <code>/build-context</code>로 분리</h3>
+<p>Kaniko Pod에서 PVC를 <code>/workspace</code>에 마운트하면 안 된다. Kaniko는 <code>/workspace</code>를 이미지 레이어 쓰기 경로로 사용하기 때문에, read-only PVC와 충돌하여 <code>read-only file system</code> 에러가 발생한다.</p>
+
+<div class="tablewrap"><table>
+<thead><tr><th></th><th>경로</th><th>용도</th></tr></thead>
+<tbody>
+<tr><td class="ok">O</td><td><code>/build-context</code></td><td>PVC 마운트 (read-only) — COPY 소스 파일</td></tr>
+<tr><td class="ok">O</td><td><code>/kaniko-config</code></td><td>Dockerfile ConfigMap 마운트</td></tr>
+<tr><td class="ok">O</td><td><code>/workspace</code></td><td>Kaniko 내부 사용 (이미지 레이어 쓰기) — 마운트하지 않음</td></tr>
+<tr><td class="ng">X</td><td><s><code>/workspace</code>에 PVC 마운트</s></td><td>Kaniko 쓰기 경로와 충돌 → read-only file system 에러</td></tr>
+</tbody>
+</table></div>
+
+<h3>4.3 PVC는 항상 Read-Only</h3>
+<p>Kaniko Pod에서 PVC는 <code>readOnly: true</code>로 마운트한다. 빌드 컨텍스트는 읽기만 하면 되며, 사용자 데이터를 실수로 변경하는 것을 방지한다.</p>
+
+<h2>5. 관련 코드 위치</h2>
+
+<div class="tablewrap"><table>
+<thead><tr><th>역할</th><th>파일</th></tr></thead>
+<tbody>
+<tr><td>PVC mount path 설정</td><td><code>dockerizer-backend-server/.../volume/client/VolumeProperties.java</code></td></tr>
+<tr><td>Browse API (경로 정규화)</td><td><code>dockerizer-backend-server/.../volume/service/VolumeBrowserService.java</code></td></tr>
+<tr><td>Kaniko Job 생성 (마운트 구성)</td><td><code>imagebuild-controller/.../reconciler/KanikoJobFactory.java</code></td></tr>
+<tr><td>Dockerfile COPY 생성 (프론트)</td><td><code>dockerizer-web/src/pages/dockerfile/DockerfileEditorPage.tsx</code></td></tr>
+<tr><td>CRD 스키마 (buildContextPvc)</td><td><code>helm/imagebuild-controller/templates/crd.yaml</code></td></tr>
+<tr><td>설정 파일</td><td><code>dockerizer-backend-server/src/main/resources/application.yaml</code></td></tr>
+</tbody>
+</table></div>
+
+<h2>6. Kaniko Pod Volume 구성 요약</h2>
+
+<pre><code>spec:
+  volumes:
+    - name: dockerfile            # Dockerfile 내용 (ConfigMap)
+      configMap:
+        name: imagebuild-xxxx-dockerfile
+    - name: docker-config         # Harbor push 인증 (Secret)
+      secret:
+        secretName: image-registry-secret-...
+    - name: build-context         # 빌드 컨텍스트 (PVC, read-only)
+      persistentVolumeClaim:
+        claimName: pjw-volume-8b5c4c37
+        readOnly: true
+  containers:
+    - name: kaniko
+      args:
+        - --dockerfile=/kaniko-config/Dockerfile
+        - --context=dir:///build-context
+        - --destination=registry/project/image:tag
+      volumeMounts:
+        - name: dockerfile
+          mountPath: /kaniko-config
+        - name: build-context
+          mountPath: /build-context
+        - name: docker-config
+          mountPath: /kaniko/.docker</code></pre>
+
+<hr>
+<p style="font-size:.85rem;color:var(--muted);text-align:center;">Dockerizer — PVC Mount Architecture &copy; AIPub, TEN Inc.</p>
+
+</div></div>
+</body></html>
