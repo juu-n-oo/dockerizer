@@ -14,6 +14,7 @@ dockerizer-backend/
 
 # Claude Code per-session settings (사용자별, 공유 X)
 .claude/settings.local.json
+.claude/launch.json
 
 # 기타
 *.log
