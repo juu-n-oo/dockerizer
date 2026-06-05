@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AIPub Volume ↔ Build Context 경로 모델</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --card: #1a1d27;
+    --border: #2a2d3a;
+    --text: #e1e4eb;
+    --muted: #8b8fa3;
+    --accent: #3b82f6;
+    --green: #22c55e;
+    --orange: #f59e0b;
+    --red: #ef4444;
+    --purple: #a855f7;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.65;
+    padding: 40px 20px;
+  }
+  .container { max-width: 1080px; margin: 0 auto; }
+  h1 { font-size: 28px; font-weight: 700; margin-bottom: 8px; }
+  .subtitle { color: var(--muted); font-size: 14px; margin-bottom: 36px; }
+
+  .section { margin-bottom: 44px; }
+  .section-title {
+    font-size: 20px; font-weight: 600; margin-bottom: 18px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .section-title .num {
+    background: var(--accent); color: #fff; width: 28px; height: 28px;
+    border-radius: 50%; display: inline-flex; align-items: center;
+    justify-content: center; font-size: 14px; font-weight: 700; flex-shrink: 0;
+  }
+
+  .card {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 12px; padding: 22px 24px; margin-bottom: 16px;
+  }
+  .card-title { font-size: 15px; font-weight: 600; margin-bottom: 12px; }
+
+  p { margin-bottom: 10px; }
+  ul { margin: 8px 0 8px 22px; }
+  li { margin-bottom: 5px; }
+
+  code {
+    background: #1e2030; padding: 2px 6px; border-radius: 4px;
+    font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 12.5px;
+    color: #e0a4ff;
+  }
+  .tree {
+    background: #12141c; border: 1px solid var(--border); border-radius: 8px;
+    padding: 14px 18px; font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+    font-size: 12.5px; line-height: 1.7; overflow-x: auto; white-space: pre; margin: 10px 0;
+  }
+  .tree .dim { color: var(--muted); }
+  .tree .file { color: #fbbf24; }
+  .tree .dir { color: #60a5fa; }
+  .tree .mark { color: var(--green); }
+  .tree .bad { color: var(--red); }
+  .tree .note { color: var(--muted); font-style: italic; }
+
+  .cols { display: flex; gap: 16px; flex-wrap: wrap; }
+  .cols > .card { flex: 1; min-width: 280px; margin-bottom: 0; }
+
+  .pill {
+    display: inline-block; font-size: 11px; font-weight: 600; padding: 2px 9px;
+    border-radius: 999px; margin-bottom: 8px; text-transform: uppercase; letter-spacing: .4px;
+  }
+  .pill-pvc { background: #2a2410; color: #fbbf24; }
+  .pill-browser { background: #10243a; color: #60a5fa; }
+  .pill-kaniko { background: #1a2e1a; color: #4ade80; }
+
+  table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 13px; }
+  th { text-align: left; padding: 10px 12px; border-bottom: 2px solid var(--border);
+       color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .4px; }
+  td { padding: 9px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+
+  .eq {
+    background: #12141c; border: 1px solid var(--accent); border-radius: 8px;
+    padding: 16px 20px; margin: 14px 0; font-family: 'JetBrains Mono', monospace;
+    font-size: 13.5px; color: var(--text); line-height: 1.8;
+  }
+  .eq .hl { color: #4ade80; font-weight: 600; }
+
+  .note-box {
+    font-size: 13px; color: var(--text); background: #181a24;
+    border-left: 3px solid var(--accent); padding: 12px 16px; margin: 12px 0; border-radius: 0 6px 6px 0;
+  }
+  .warn-box {
+    font-size: 13px; background: #241318; border-left: 3px solid var(--red);
+    padding: 12px 16px; margin: 12px 0; border-radius: 0 6px 6px 0;
+  }
+  .ok-box {
+    font-size: 13px; background: #13241a; border-left: 3px solid var(--green);
+    padding: 12px 16px; margin: 12px 0; border-radius: 0 6px 6px 0;
+  }
+  .step-num { color: var(--accent); font-weight: 700; }
+  strong { color: #fff; }
+  .arrow { color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="container">
+
+<h1>AIPub Volume ↔ Build Context 경로 모델</h1>
+<p class="subtitle">같은 PVC를 "파일 브라우저"와 "Kaniko 빌드"가 서로 다른 방식으로 마운트한다 — 왜 경로가 어긋나는지, 어떻게 맞추는지</p>
+
+<!-- ─── 1. 큰 그림 ─── -->
+<div class="section">
+  <div class="section-title"><span class="num">1</span> 큰 그림 — 하나의 PVC, 두 명의 소비자</div>
+  <div class="card">
+    <p>AIPubVolume CR 은 내부적으로 <strong>하나의 PVC</strong>(예: <code>pjw-volume-xxxx</code>)로 resolve 된다. 이 PVC 는 "데이터가 실제로 저장된 디스크"다. 우리가 다루는 두 화면은 <strong>같은 PVC</strong>를 보지만 <strong>서로 다른 pod 에서, 서로 다른 위치에 마운트</strong>해서 본다.</p>
+    <div class="tree"><span class="dim">         ┌─────────────────────────────┐</span>
+<span class="dim">         │   PVC (실제 저장 데이터)      │</span>   <span class="note">← 진실의 원본. 경로는 "PVC 루트 기준"</span>
+<span class="dim">         └─────────────────────────────┘</span>
+<span class="dim">            ▲                       ▲</span>
+<span class="dim">     mount │ (읽기)          mount │ (읽기전용)</span>
+<span class="dim">            │                       │</span>
+ <span class="pill pill-browser">파일 브라우저</span>              <span class="pill pill-kaniko">Kaniko 빌드 pod</span>
+ 접근 pod 안 <code>/data</code> 에 마운트       <code>/workspace</code> 에 마운트
+ <span class="note">(Dockerfile 작성 시 파일 선택)</span>     <span class="note">(--context=dir:///workspace)</span></div>
+    <p>두 소비자가 <strong>PVC 의 어느 부분을(subPath) 어디에(mountPath)</strong> 붙이느냐가 다르면, 같은 파일이라도 "보이는 경로"가 달라진다. 이게 혼란의 근원이다.</p>
+  </div>
+</div>
+
+<!-- ─── 2. 마운트 규칙 ─── -->
+<div class="section">
+  <div class="section-title"><span class="num">2</span> 마운트의 기본 규칙 (mountPath / subPath)</div>
+  <div class="card">
+    <p>k8s 에서 PVC 를 pod 에 붙일 때 두 가지를 정한다:</p>
+    <ul>
+      <li><code>mountPath</code> — pod 안에서 <strong>어느 경로에</strong> 보이게 할지</li>
+      <li><code>subPath</code> <span class="dim">(선택)</span> — PVC <strong>전체가 아니라 그 하위 디렉터리만</strong> 붙일지</li>
+    </ul>
+    <div class="eq"><span class="hl">PVC 안의 경로</span>  <code>&lt;subPath&gt;/X</code>   <span class="arrow">──마운트──▶</span>   <span class="hl">pod 안의 경로</span>  <code>&lt;mountPath&gt;/X</code></div>
+    <p>즉 <strong>마운트하면 <code>subPath</code> 부분은 "잘려 나가고", <code>mountPath</code> 가 새 루트가 된다.</strong> 같은 파일이 pod 마다 다른 절대경로로 보이는 이유다.</p>
+    <div class="note-box">예) PVC 안 <code>/team-a/data/x.txt</code> 를 <code>subPath=team-a/data</code>, <code>mountPath=/data</code> 로 붙이면 → pod 안에서는 <code>/data/x.txt</code> 로 보인다. <code>team-a/data</code> 라는 앞부분은 사라진다.</div>
+  </div>
+</div>
+
+<!-- ─── 3. 레이어별 파일시스템 ─── -->
+<div class="section">
+  <div class="section-title"><span class="num">3</span> 같은 파일, 세 가지 시점</div>
+  <p style="color:var(--muted);font-size:13.5px;margin-bottom:14px;">AIPub 볼륨에 <code>all_conversations.txt</code> 와 <code>temp/common.zip</code> 이 있고, 파일 브라우저에서는 <code>/data/...</code> 아래로 보이는 상황을 예로 든다. (PVC 내부의 실제 subPath 는 <code>S</code> 로 표기 — 4·6장에서 실제 값 확인 방법 제공)</p>
+
+  <div class="cols">
+    <div class="card">
+      <span class="pill pill-pvc">① PVC 실제 저장</span>
+      <div class="card-title">진실의 원본 (PVC 루트 기준)</div>
+      <div class="tree">PVC:/
+└─ <span class="dir">S/</span>                <span class="note">← AIPub 가 쓰는 내부 subPath</span>
+   ├─ <span class="file">all_conversations.txt</span>
+   └─ <span class="dir">temp/</span>
+      └─ <span class="file">common.zip</span></div>
+      <p style="font-size:12.5px;color:var(--muted);">PVC 루트 기준 실제 경로:<br><code>S/all_conversations.txt</code><br><code>S/temp/common.zip</code></p>
+    </div>
+
+    <div class="card">
+      <span class="pill pill-browser">② 파일 브라우저 시점</span>
+      <div class="card-title">접근 pod: <code>subPath=S</code> → <code>/data</code></div>
+      <div class="tree">/  <span class="note">(접근 pod 파일시스템 루트)</span>
+└─ <span class="dir">data/</span>            <span class="note">← S 가 여기 마운트됨</span>
+   ├─ <span class="file">all_conversations.txt</span>
+   └─ <span class="dir">temp/</span>
+      └─ <span class="file">common.zip</span></div>
+      <p style="font-size:12.5px;color:var(--muted);">사용자가 보는 경로:<br><code>/data/all_conversations.txt</code><br><code>/data/temp/common.zip</code><br><span class="bad" style="color:var(--orange)">→ 여기서 <code>data</code> 는 PVC 안 폴더가 아니라 <strong>마운트 지점</strong></span></p>
+    </div>
+
+    <div class="card">
+      <span class="pill pill-kaniko">③ Kaniko 빌드 시점</span>
+      <div class="card-title">빌드: <code>subPath</code> 없이 → <code>/workspace</code></div>
+      <div class="tree">/workspace/   <span class="note">(= PVC 루트 그대로)</span>
+└─ <span class="dir">S/</span>
+   ├─ <span class="file">all_conversations.txt</span>
+   └─ <span class="dir">temp/</span>
+      └─ <span class="file">common.zip</span></div>
+      <p style="font-size:12.5px;color:var(--muted);">Kaniko 가 보는 실제 경로:<br><code>/workspace/S/all_conversations.txt</code><br><span style="color:var(--green)">→ <code>/data</code> 가 아니라 <code>S</code> 가 앞에 붙는다</span></p>
+    </div>
+  </div>
+
+  <div class="note-box" style="margin-top:16px;">
+    핵심: <strong>브라우저의 <code>/data</code> 와 빌드의 <code>/workspace</code> 는 같은 PVC 의 같은 지점이 아니다.</strong> 브라우저는 <code>subPath=S</code> 를 잘라낸 뒤 <code>/data</code> 를 루트로 보여주고, 빌드는 PVC 루트를 통째로 <code>/workspace</code> 에 붙인다. 그래서 브라우저에서 본 <code>/data/...</code> 를 그대로 COPY 에 쓰면 어긋난다.
+  </div>
+</div>
+
+<!-- ─── 4. COPY 해석 규칙 ─── -->
+<div class="section">
+  <div class="section-title"><span class="num">4</span> COPY 가 경로를 해석하는 규칙</div>
+  <div class="card">
+    <p>Dockerfile 의 <code>COPY &lt;src&gt; &lt;dst&gt;</code> 에서 <code>&lt;src&gt;</code> 는 <strong>빌드 컨텍스트 루트(<code>/workspace</code>) 기준 상대경로</strong>다. Kaniko 는 다음 위치에서 파일을 찾는다:</p>
+    <div class="eq">찾는 위치 = <code>/workspace/&lt;src&gt;</code> = PVC:/ <span class="hl">&lt;buildContextSubPath&gt;</span> / <span class="hl">&lt;src&gt;</span></div>
+    <p>따라서 빌드가 성공하려면 이 한 줄이 성립해야 한다:</p>
+    <div class="eq"><span class="hl">&lt;buildContextSubPath&gt; / &lt;src&gt;</span>  ==  <span class="hl">파일의 PVC-루트-기준 실제 경로</span></div>
+    <p style="color:var(--muted);font-size:13px;">즉 "빌드 시 마운트하는 subPath" 와 "COPY 에 적는 경로" 를 합치면, PVC 안 실제 위치와 정확히 같아야 한다. 둘 중 하나만 알아도 나머지를 정할 수 있다.</p>
+  </div>
+</div>
+
+<!-- ─── 5. 현재 왜 실패했나 ─── -->
+<div class="section">
+  <div class="section-title"><span class="num">5</span> 그래서 지금 왜 실패했나</div>
+  <div class="card">
+    <p>두 번의 시도가 모두 실패했다 (둘 다 <code>buildContextSubPath</code> 미설정 = PVC 루트를 <code>/workspace</code> 에 마운트):</p>
+    <table>
+      <tr><th>시도한 COPY</th><th>Kaniko 가 찾은 위치</th><th>결과</th></tr>
+      <tr><td><code>COPY data/all_conversations.txt</code></td><td><code>/workspace/data/all_conversations.txt</code> = PVC:/data/...</td><td><span style="color:var(--red)">없음 (PVC 루트에 <code>data/</code> 폴더 없음)</span></td></tr>
+      <tr><td><code>COPY all_conversations.txt</code></td><td><code>/workspace/all_conversations.txt</code> = PVC:/all_conversations.txt</td><td><span style="color:var(--red)">없음 (PVC 루트에 파일 없음)</span></td></tr>
+    </table>
+    <div class="warn-box">
+      둘 다 실패했다는 건 → 파일이 PVC 루트의 <code>data/</code> 에도, PVC 루트 바로 아래에도 없다는 뜻. <strong>실제 데이터는 PVC 내부의 다른 subPath(<code>S</code>) 아래에 있고, 빌드는 그 <code>S</code> 를 건너뛴 채 PVC 루트만 마운트</strong>했기 때문이다. 브라우저가 보여준 <code>/data</code> 는 그 <code>S</code> 를 가린 "접근 pod 의 마운트 지점"일 뿐이다.
+    </div>
+  </div>
+</div>
+
+<!-- ─── 6. 올바르게 하는 법 ─── -->
+<div class="section">
+  <div class="section-title"><span class="num">6</span> 올바르게 맞추는 법</div>
+
+  <div class="card">
+    <div class="card-title"><span class="step-num">STEP 1.</span> 실제 PVC-기준 경로(=S) 를 알아낸다</div>
+    <p>두 가지 방법 중 하나로 "파일이 PVC 루트 기준 어디에 있는지" 를 확인한다.</p>
+    <p style="margin-top:10px;"><strong>방법 A — 접근 pod 의 마운트 설정 확인</strong> (브라우저가 쓰는 그 pod):</p>
+    <div class="tree">kubectl get pod <span class="file">&lt;pvcName&gt;</span> -n <span class="file">&lt;project-ns&gt;</span> \
+  -o jsonpath='{range .spec.containers[*].volumeMounts[*]}{.name}{"  mountPath="}{.mountPath}{"  subPath="}{.subPath}{"\n"}{end}'
+
+<span class="note"># mountPath=/data 인 줄의 subPath 값이 곧 S 다.</span>
+<span class="note"># 예: subPath=team-a/data  →  S = team-a/data</span></div>
+    <p style="margin-top:10px;"><strong>방법 B — 빈 빌드로 직접 들여다보기</strong> (COPY 없이, 같은 볼륨을 컨텍스트로):</p>
+    <div class="tree">FROM aipub-harbor.cluster10.idc1.ten1010.io/common/ubuntu:latest
+RUN ls -laR /workspace || true
+CMD ["sleep", "infinity"]</div>
+    <p style="font-size:12.5px;color:var(--muted);">빌드 로그에 <code>/workspace</code> 의 실제 트리가 찍힌다 → 파일이 PVC 루트 기준 어디 있는지 눈으로 확인. (COPY 가 없으니 실패 없이 구조만 보여준다.)</p>
+  </div>
+
+  <div class="card">
+    <div class="card-title"><span class="step-num">STEP 2.</span> subPath 와 COPY 경로를 맞춘다</div>
+    <p>S 를 알았다면, 두 가지 동등한 방법 중 하나를 쓴다.</p>
+    <div class="cols" style="margin-top:8px;">
+      <div class="card" style="background:#12141c;">
+        <div class="card-title" style="color:var(--green)">방법 ① subPath 로 맞추기 <span style="color:var(--muted);font-weight:400;">(권장)</span></div>
+        <p style="font-size:12.5px;">빌드 다이얼로그의 <strong>서브 경로</strong> 에 <code>S</code> 를 넣는다. 그러면 <code>/workspace</code> 가 곧 브라우저의 <code>/data</code> 와 같아져서, COPY 는 <code>/data</code> 이후 경로만 적으면 된다.</p>
+        <div class="tree"><span class="note"># buildContextSubPath = S</span>
+COPY <span class="file">all_conversations.txt</span> /workspace/
+COPY <span class="file">temp/common.zip</span> /workspace/temp/</div>
+        <p style="font-size:12px;color:var(--muted);">→ 찾는 위치 <code>PVC:/S/all_conversations.txt</code> ✔</p>
+      </div>
+      <div class="card" style="background:#12141c;">
+        <div class="card-title">방법 ② subPath 없이, COPY 에 전부 적기</div>
+        <p style="font-size:12.5px;">서브 경로를 비우고(=PVC 루트 마운트), COPY 에 <code>S</code> 까지 포함한 전체 경로를 적는다.</p>
+        <div class="tree"><span class="note"># buildContextSubPath = (비움)</span>
+COPY <span class="file">S/all_conversations.txt</span> /workspace/
+COPY <span class="file">S/temp/common.zip</span> /workspace/temp/</div>
+        <p style="font-size:12px;color:var(--muted);">→ 찾는 위치 <code>PVC:/S/all_conversations.txt</code> ✔ (동일)</p>
+      </div>
+    </div>
+    <div class="ok-box" style="margin-top:14px;">
+      핵심 한 줄: <strong>"빌드 subPath + COPY 경로" 를 합치면 항상 "파일의 PVC 루트 기준 실제 경로(=S/…)" 와 같게 만든다.</strong> 어디서 끊느냐(subPath 로 흡수 vs COPY 에 명시)는 취향 차이일 뿐 결과는 같다.
+    </div>
+  </div>
+</div>
+
+<!-- ─── 7. 목적지(dst) 와 WORKDIR ─── -->
+<div class="section">
+  <div class="section-title"><span class="num">7</span> 참고 — 목적지(<code>&lt;dst&gt;</code>) 는 별개다</div>
+  <div class="card">
+    <p><code>COPY &lt;src&gt; &lt;dst&gt;</code> 에서 <code>&lt;dst&gt;</code> 는 <strong>빌드되는 이미지 안의 경로</strong>다. 컨텍스트(<code>/workspace</code>)와 무관하며, 실패 원인과도 무관하다. 예:</p>
+    <div class="tree">COPY all_conversations.txt /workspace/      <span class="note"># 이미지 안 /workspace/all_conversations.txt 로 복사</span>
+COPY temp/common.zip       /app/data/      <span class="note"># 이미지 안 /app/data/common.zip 로 복사</span></div>
+    <p style="font-size:12.5px;color:var(--muted);">즉 왼쪽(src)=컨텍스트(볼륨)에서 <em>읽을</em> 위치, 오른쪽(dst)=이미지에 <em>쓸</em> 위치. 이번 오류는 전부 왼쪽(src)·마운트 문제이고 오른쪽(dst)은 아무 상관 없다.</p>
+  </div>
+</div>
+
+<!-- ─── 요약 ─── -->
+<div class="section">
+  <div class="section-title"><span class="num">✓</span> 한 장 요약</div>
+  <div class="card">
+    <ul style="margin-left:18px;">
+      <li><strong>브라우저 경로 ≠ 빌드 경로.</strong> 브라우저는 <code>subPath=S</code> 를 잘라 <code>/data</code> 로 보여주고, 빌드는 PVC 루트를 <code>/workspace</code> 에 붙인다.</li>
+      <li><strong>COPY src 는 <code>/workspace</code>(컨텍스트 루트) 기준 상대경로.</strong> 찾는 위치 = <code>PVC:/&lt;subPath&gt;/&lt;src&gt;</code>.</li>
+      <li><strong>성립 조건:</strong> <code>&lt;subPath&gt; + &lt;src&gt;</code> == 파일의 PVC-루트-기준 실제 경로(<code>S/…</code>).</li>
+      <li><strong>지금 실패 이유:</strong> 실제 데이터가 PVC 의 <code>S</code> 아래 있는데 빌드는 <code>S</code> 를 건너뛴 PVC 루트만 마운트 → <code>data/…</code> 도 <code>…</code> 도 모두 못 찾음.</li>
+      <li><strong>해결:</strong> ① 접근 pod 의 subPath(=S) 를 확인 → ② 빌드 서브경로에 S 를 넣고 COPY 는 그 이후만 적기 (또는 subPath 비우고 COPY 에 <code>S/…</code> 전체 적기).</li>
+    </ul>
+    <div class="note-box" style="margin-top:14px;">
+      추가 메모: 현재 UI 는 파일 브라우저가 보여준 <code>/data/...</code> 를 그대로 COPY 로 만들면서 접근 pod 의 마운트 지점(<code>data</code>)을 볼륨 내부 경로로 오인한다. 또 빌드 <strong>서브 경로</strong> 입력은 파일 선택과 자동 연동되지 않는다. 근본 수정은 "브라우저가 보여주는 기준점(= 접근 pod 의 mountPath/subPath)" 정보를 빌드 마운트에 자동 반영하는 것이다. (별도 작업)
+    </div>
+  </div>
+</div>
+
+</div>
+</body>
+</html>

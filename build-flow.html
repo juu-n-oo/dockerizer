@@ -421,6 +421,48 @@
   <span class="key">pushSecretRef</span>: <span class="str">image-registry-secret-project-aipub-ten1010-io-pjw</span>
   <span class="key">buildContextPvc</span>: <span class="str">data-storage-43d77785</span>   <span class="comment"># (있을 때만)</span>
   <span class="key">buildContextSubPath</span>: <span class="str">/workspace/src</span>       <span class="comment"># (있을 때만)</span></div>
+
+    <p class="note">
+      Backend는 <code>spec</code>만 채워 CR을 생성한다. <code>status</code>는 생성 직후엔 비어 있으며(또는 <code>phase: Pending</code>),
+      이후 <strong>Controller가 status 서브리소스를 patch</strong>하며 채워 나간다. Backend·Frontend는 이 <code>status</code>를 읽어 빌드 진행 상태/결과를 표시한다.
+    </p>
+
+    <div class="code-block"><span class="comment">// Controller가 채우는 ImageBuild CR status (서브리소스)</span>
+<span class="kw">status</span>:
+  <span class="key">phase</span>: <span class="str">Succeeded</span>                  <span class="comment"># Pending | Preparing | Building | Succeeded | Failed</span>
+  <span class="key">startTime</span>: <span class="str">"2026-06-02T12:00:03Z"</span>    <span class="comment"># Preparing 진입 시각 (빌드 시작)</span>
+  <span class="key">completionTime</span>: <span class="str">"2026-06-02T12:04:11Z"</span> <span class="comment"># Succeeded/Failed 도달 시각 (종료)</span>
+  <span class="key">message</span>: <span class="str">"Build completed successfully"</span> <span class="comment"># 사람이 읽는 상태 메시지 / 실패 시 에러 원인</span>
+  <span class="key">imageDigest</span>: <span class="str">sha256:9f2c…a17b</span>      <span class="comment"># 성공 시에만 기록 (push된 이미지 digest)</span></div>
+
+    <table>
+      <tr><th style="width:24%">필드</th><th>설명</th></tr>
+      <tr>
+        <td><code>phase</code></td>
+        <td>현재 빌드 단계. <code>Pending</code>(생성 직후) → <code>Preparing</code>(ConfigMap 생성) → <code>Building</code>(Kaniko Job 실행) → <code>Succeeded</code> / <code>Failed</code> (Section 4 상태 머신 참조)</td>
+      </tr>
+      <tr>
+        <td><code>startTime</code></td>
+        <td><code>Preparing</code>으로 전이될 때 기록 (RFC3339). 빌드가 실제로 시작된 시각</td>
+      </tr>
+      <tr>
+        <td><code>completionTime</code></td>
+        <td><code>Succeeded</code> 또는 <code>Failed</code>에 도달할 때 기록. <code>startTime</code>과의 차이로 빌드 소요 시간 산출</td>
+      </tr>
+      <tr>
+        <td><code>message</code></td>
+        <td>각 전이마다 갱신되는 사람이 읽는 메시지. 실패 시 에러 원인이 담겨 UI에서 그대로 노출</td>
+      </tr>
+      <tr>
+        <td><code>imageDigest</code></td>
+        <td><code>Succeeded</code>일 때만 채워지는 push된 이미지의 digest. 성공 결과 화면에서 이미지 경로와 함께 표시</td>
+      </tr>
+    </table>
+
+    <p class="note">
+      status는 <code>ImageBuildStatusUpdater</code>가 <strong>JSON Merge Patch</strong>로 <code>/status</code> 서브리소스에 기록하며,
+      전이마다 동일 내용이 <strong>K8s Event</strong>로도 남는다 (<code>PhaseTransition</code> / <code>BuildSucceeded</code> / <code>BuildFailed</code>).
+    </p>
   </div>
 </div>
 

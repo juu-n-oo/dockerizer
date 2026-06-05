@@ -44,6 +44,11 @@ tbody tr:last-child td{border-bottom:none;}tbody tr:hover td{background:#f8faff;
 <h2>1. 개요</h2>
 <p>Dockerizer의 COPY(Volume) 기능은 사용자의 <strong>AIPubVolume</strong>(PVC)에 있는 파일을 Kaniko 빌드 시 빌드 컨텍스트로 전달한다. 이 과정에서 <strong>세 군데의 Pod/컨테이너</strong>가 동일한 PVC를 서로 다른 경로에 마운트하므로, 경로 정규화 전략이 핵심이다.</p>
 
+<figure style="margin:1.8em 0;">
+<img src="pvc-mount-architecture.svg" alt="AIPub Volume PVC, AIPubVolume Pod(/data), Kaniko Pod(/build-context), Dockerfile COPY 경로 매핑 다이어그램" style="width:100%;max-width:1100px;display:block;margin:0 auto;border:1px solid var(--border);border-radius:14px;background:#fff;"/>
+<figcaption style="font-size:.85rem;color:var(--muted);text-align:center;margin-top:.6em;">PVC · AIPubVolume Pod · Kaniko 빌드 컨텍스트 · Dockerfile 경로 매핑 한눈에 보기 (<a href="pvc-mount-architecture.svg">SVG</a> — PowerPoint 삽입/PNG 내보내기 가능)</figcaption>
+</figure>
+
 <h2>2. PVC를 마운트하는 세 주체</h2>
 
 <div class="tablewrap"><table>
