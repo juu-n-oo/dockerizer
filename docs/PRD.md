@@ -200,6 +200,10 @@ flowchart LR
 - **Base 이미지 덮어쓰기 경고** — 빌드 대상 이미지(`ImageHub/ImageName:Tag`)가 base 이미지와 완전히 동일하면, 빌드 성공 시 기존 이미지가 교체된다는 ⚠️ 경고를 다이얼로그에 표시한다.
 - **빌드 트리거 — 프론트가 ImageBuild CR 직접 생성** — 기존엔 프론트가 `POST /builds`로 백엔드를 경유해 CR을 만들었으나, 빌드 시작 시 프론트가 Dockerfile 내용을 `spec.dockerfileContent`에 inline해 **k8sproxy로 ImageBuild CR을 직접 생성**한다(목록·상태 조회는 이미 k8sproxy 직행). 컨트롤러는 spec만으로 self-contained 유지(백엔드 런타임 의존 0). Dockerfile 내용을 spec에 싣는 것은 수 KB 규모로 etcd 객체 한계(~1.5MB) 대비 무리 없음(빌드 컨텍스트 파일은 여전히 PVC 경유). COPY/ADD 검증은 **저장 시점**(`DockerfileValidator`)에 이미 수행되므로 빌드 시점 재검증은 제외한다. 백엔드 `triggerBuild`는 **MCP 툴용으로 존속**한다 → CR 생성 로직이 프론트(UI)·백엔드(MCP) 양쪽에 공존하므로 spec 변경 시 동기화 필요.
   - **TODO (RBAC)**: 직접 생성은 **사용자의 AIPub 신원**(k8sproxy 경유)으로 이뤄지므로, 프로젝트 멤버 role에 `dockerizer.aipub.ten1010.io/imagebuilds` 의 `create` 권한이 필요하다. 이 권한 부여는 **project controller 모듈**에서 제어한다.
+- **이미지 메타데이터 라벨 (OCI 표준 baking)** — 빌드 산출 이미지에 식별·계보 정보를 **이미지 config 라벨로 baking**한다(기획서 §7.2 이미지 메타/계보 관리의 1차 구현). 기존 `ImageBuild` CR 라벨(dockerfile-id/revision/username)은 **CR 객체에만** 붙어 TTL GC 후 사라지므로, 이미지 자체에서 "어떤 Dockerfile·리비전·누가 만든 이미지인지"를 영구 추적하려면 이미지 라벨이 필요하다. 구현: CR `spec.imageLabels`(map[string]string) 신설 → 컨트롤러(`KanikoJobFactory`)가 키 정렬 후 Kaniko `--label key=value`로 전개. 라벨 조립은 **프론트가 수행**(CR 직접 생성 원칙과 일치, 컨트롤러는 spec-driven 유지).
+  - **자동 주입**: provenance(`dockerizer.aipub.ten1010.io/dockerfile-id`·`/dockerfile-revision-id`·`/username`) + OCI 표준(`org.opencontainers.image.created`/`.title`/`.revision`/`.vendor`/`.base.name`/`.description`).
+  - **사용자 입력**(빌드 다이얼로그 "이미지 메타데이터" 섹션): 기본 표시 `version`(기본=태그)·`authors`(기본=소유자), 탭 "추가 설정" `licenses`(SPDX)·`url`·`documentation`, 탭 "커스텀 라벨" 임의 key=value(ENV 입력과 동일 UX).
+  - 스캔(Trivy)은 dockerizer가 **트리거하지 않는다** — 사용자는 필요 시 AIPub backend의 Harbor/Trivy 결과를 활용한다(기획서 §7.2 취약점 스캔 결과 연동은 별도 백로그 유지).
 
 ### 제한 · 보류
 
