@@ -340,7 +340,7 @@ flowchart LR
 <li><strong>빌드 대상 이미지 입력 분리 + 미리보기</strong> — 한 칸이던 이미지 주소 입력을 <strong>ImageHub · 이미지 이름 · 태그</strong> 셋으로 나누고, 조합된 최종 주소를 미리보기로 보여준다. (이미지 이름 기본값 = Dockerfile 이름)</li>
 <li><strong>Base 이미지 덮어쓰기 경고</strong> — 빌드 결과 이미지 주소가 base 이미지와 완전히 같으면, 기존 이미지를 덮어쓴다는 ⚠️ 경고를 띄운다.</li>
 <li><strong>빌드 트리거 방식 정리</strong> — 빌드 시작 처리를 프론트가 직접 수행하도록 정리해, 빌드 기능이 백엔드 가동 여부와 무관하게 동작하도록 했다. (권한은 프로젝트 멤버 역할로 통제 — 멤버 role에 빌드 생성 권한 부여는 <strong>TODO</strong>)</li>
-<li><strong>이미지 메타데이터 라벨(OCI 표준)</strong> — 빌드한 이미지에 "누가·어떤 Dockerfile·어떤 버전으로 만들었는지" 등 식별·이력 정보를 <strong>이미지 라벨</strong>로 새겨, 이미지만 봐도 출처를 추적할 수 있게 한다. 사용자가 직접 입력하는 값(버전·작성자 등)은 <strong>Dockerfile 안에 기록</strong>되어 함께 보존되고, 빌드할 때마다 자동으로 채워지는 값(생성 시각·리비전 등)은 <strong>빌드 시 주입</strong>된다. 입력은 Dockerfile 에디터의 "이미지 메타데이터" 섹션(접이식)에서 받는다. → 라벨 종류는 아래 참고 박스 참조.</li>
+<li><strong>이미지 메타데이터 라벨(OCI 표준)</strong> — 빌드한 이미지에 "누가·어떤 Dockerfile·어떤 버전으로 만들었는지" 등 식별·이력 정보를 <strong>이미지 라벨</strong>로 새겨, 이미지만 봐도 출처를 추적할 수 있게 한다. 사용자가 직접 입력하는 값(버전·작성자 등)은 <strong>Dockerfile 안에 기록</strong>되어 함께 보존되고, 빌드할 때마다 자동으로 채워지는 값(생성 시각·리비전 등)은 <strong>빌드 시 주입</strong>된다. 입력은 Dockerfile 에디터의 "이미지 메타데이터" 섹션(접이식)에서 받는다. → 라벨 종류는 아래 참고 박스, 실제 빌드 결과 예시는 <a href="image-label-example.html">image-label-example.html</a> 참조.</li>
 <li><strong>Dockerfile 이름 중복 방지</strong> — 같은 프로젝트·사용자 안에서 Dockerfile 이름이 겹치지 않도록 입력 단계(즉시 안내)부터 저장(서버 검증)까지 일관되게 막는다. 이름 변경 시에도 동일하게 검사한다.</li>
 </ul>
 <blockquote>
@@ -372,6 +372,7 @@ flowchart LR
 </ul>
 <h2>12. 참고 문서</h2>
 <ul>
+<li>이미지 메타데이터 라벨 실제 빌드 예시 — <a href="image-label-example.html">image-label-example.html</a></li>
 <li>서비스 기획서 v0.1 — <code>dockerizer-web/CLAUDE.md</code>, <code>dockerizer-backend/CLAUDE.md</code></li>
 <li>백엔드 구조 — <code>dockerizer-backend/README.md</code></li>
 <li>실행계획 — <code>dockerizer-backend/docs/mvp-execution-plan.md</code>, <code>dockerizer-web/docs/mvp-execution-plan.md</code></li>
