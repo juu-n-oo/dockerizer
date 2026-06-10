@@ -7,7 +7,7 @@
 | 문서 | Dockerizer 제품 요구사항 정의서 (PRD) |
 | 범위 | **Beta** (AIPub 4.8.0 동반 출시) |
 | 작성일 | 2026-05-29 |
-| 갱신 | 2026-06-05 — Dockerfile 버전관리 In-Scope·AC 반영, 구현 결정 사항(§10) 신설, Volume 웹 업로드 제한 및 SFTPServer 재설계 Open Question 추가, 시스템 개요 다이어그램 Dockerizer 표기 정정, 외부 레지스트리(NGC/Hugging Face) → Image Catalog 전환 |
+| 갱신 | 2026-06-05 — Dockerfile 버전관리 In-Scope·AC 반영, 구현 결정 사항(§10) 신설, Volume 웹 업로드 제한 및 SFTPServer 재설계 Open Question 추가, 시스템 개요 다이어그램 Dockerizer 표기 정정, 외부 레지스트리(NGC/Hugging Face) → Image Catalog 전환<br>2026-06-10 — §10 이미지 메타데이터 라벨을 Dockerfile `LABEL`(정적)·`--label`(휘발) 분리 baking으로 개편, 입력 위치를 빌드 다이얼로그→에디터로 이동(섹션 토글·2열 UI), 커스텀/ENV 중복 키 경고, Dockerfile 이름 중복 방지(§10) 추가 |
 | 출시 목표 | **AIPub 4.8.0 릴리즈와 함께 Beta 출시** — 목표일 2026-06-19 |
 | 소스 | 서비스 기획서 v0.1 |
 | 상태 | Draft |
@@ -200,10 +200,12 @@ flowchart LR
 - **Base 이미지 덮어쓰기 경고** — 빌드 대상 이미지(`ImageHub/ImageName:Tag`)가 base 이미지와 완전히 동일하면, 빌드 성공 시 기존 이미지가 교체된다는 ⚠️ 경고를 다이얼로그에 표시한다.
 - **빌드 트리거 — 프론트가 ImageBuild CR 직접 생성** — 기존엔 프론트가 `POST /builds`로 백엔드를 경유해 CR을 만들었으나, 빌드 시작 시 프론트가 Dockerfile 내용을 `spec.dockerfileContent`에 inline해 **k8sproxy로 ImageBuild CR을 직접 생성**한다(목록·상태 조회는 이미 k8sproxy 직행). 컨트롤러는 spec만으로 self-contained 유지(백엔드 런타임 의존 0). Dockerfile 내용을 spec에 싣는 것은 수 KB 규모로 etcd 객체 한계(~1.5MB) 대비 무리 없음(빌드 컨텍스트 파일은 여전히 PVC 경유). COPY/ADD 검증은 **저장 시점**(`DockerfileValidator`)에 이미 수행되므로 빌드 시점 재검증은 제외한다. 백엔드 `triggerBuild`는 **MCP 툴용으로 존속**한다 → CR 생성 로직이 프론트(UI)·백엔드(MCP) 양쪽에 공존하므로 spec 변경 시 동기화 필요.
   - **TODO (RBAC)**: 직접 생성은 **사용자의 AIPub 신원**(k8sproxy 경유)으로 이뤄지므로, 프로젝트 멤버 role에 `dockerizer.aipub.ten1010.io/imagebuilds` 의 `create` 권한이 필요하다. 이 권한 부여는 **project controller 모듈**에서 제어한다.
-- **이미지 메타데이터 라벨 (OCI 표준 baking)** — 빌드 산출 이미지에 식별·계보 정보를 **이미지 config 라벨로 baking**한다(기획서 §7.2 이미지 메타/계보 관리의 1차 구현). 기존 `ImageBuild` CR 라벨(dockerfile-id/revision/username)은 **CR 객체에만** 붙어 TTL GC 후 사라지므로, 이미지 자체에서 "어떤 Dockerfile·리비전·누가 만든 이미지인지"를 영구 추적하려면 이미지 라벨이 필요하다. 구현: CR `spec.imageLabels`(map[string]string) 신설 → 컨트롤러(`KanikoJobFactory`)가 키 정렬 후 Kaniko `--label key=value`로 전개. 라벨 조립은 **프론트가 수행**(CR 직접 생성 원칙과 일치, 컨트롤러는 spec-driven 유지).
-  - **자동 주입**: provenance(`dockerizer.aipub.ten1010.io/dockerfile-id`·`/dockerfile-revision-id`·`/username`) + OCI 표준(`org.opencontainers.image.created`/`.title`/`.revision`/`.vendor`/`.base.name`/`.description`).
-  - **사용자 입력**(빌드 다이얼로그 "이미지 메타데이터" 섹션): 기본 표시 `version`(기본=태그)·`authors`(기본=소유자), 탭 "추가 설정" `licenses`(SPDX)·`url`·`documentation`, 탭 "커스텀 라벨" 임의 key=value(ENV 입력과 동일 UX).
+- **이미지 메타데이터 라벨 (OCI 표준 baking)** — 빌드 산출 이미지에 식별·계보 정보를 **이미지 config 라벨로 baking**한다(기획서 §7.2 이미지 메타/계보 관리의 1차 구현). 기존 `ImageBuild` CR 라벨(dockerfile-id/revision/username)은 **CR 객체에만** 붙어 TTL GC 후 사라지므로, 이미지 자체에서 "어떤 Dockerfile·리비전·누가 만든 이미지인지"를 영구 추적하려면 이미지 라벨이 필요하다. 라벨은 **정적/휘발 성격에 따라 두 경로로 분리 baking**한다.
+  - **(1) 사용자 입력 정적 라벨 → Dockerfile `LABEL` 지시자(content에 baking, round-trip)** — 값이 Dockerfile과 함께 보존되고 `docker build`로도 재현되도록, 사용자가 입력한 라벨은 생성되는 Dockerfile 본문의 `LABEL`로 들어간다. 입력은 **빌드 다이얼로그가 아니라 Dockerfile 에디터**의 "이미지 메타데이터" 섹션에서 받으며, 에디터 ↔ content 를 양방향으로 파싱한다(생성 시 `LABEL` 출력, 재편집 시 `LABEL` 파싱). 대상 키: `org.opencontainers.image.title`(Dockerfile 이름에서 자동 — 필드로 노출하지 않음)·`.version`(빈 값이면 `latest`)·`.authors`(기본=로그인 사용자)·`.licenses`(SPDX)·`.url`·`.documentation` + 임의 커스텀 key=value. `LABEL` 블록은 **Dockerfile 최하단**에 배치해 레이어 캐시 무효화를 최소화하되(버전 등은 Dockerfile 안에서 그대로 확인 가능), 빈 값은 출력에서 생략한다.
+  - **(2) 휘발성 자동 라벨 → CR `spec.imageLabels`(map[string]string) → Kaniko `--label`** — 매 빌드마다 달라져 Dockerfile에 고정하기 부적절한 값은 CR spec으로 전달하고 컨트롤러(`KanikoJobFactory`)가 키 정렬 후 `--label key=value`로 전개한다. 대상: provenance(`dockerizer.aipub.ten1010.io/dockerfile-id`·`/dockerfile-revision-id`·`/username`) + OCI `org.opencontainers.image.created`·`.revision`·`.vendor`·`.base.name`·`.description`. 라벨 조립은 **프론트가 수행**(CR 직접 생성 원칙과 일치, 컨트롤러는 spec-driven 유지). `.title`/`.version` 등 사용자 입력 키는 (1)의 Dockerfile `LABEL`로 이관되어 여기서는 제외한다(중복 시 마지막 값이 우선).
+  - **입력 UI** — "이미지 메타데이터" 섹션 헤더를 토글 버튼으로 두고, 펼치면 표준 필드(Version/Author/License/URL/Documentation)를 좌우 2열로 기본 노출한다. 커스텀 라벨은 "추가" 버튼으로 행을 추가하는 ENV 입력과 동일 UX(기본 1행). 커스텀 키가 표준 OCI 키와 겹치거나 커스텀 키끼리 중복될 때, 그리고 ENV 키가 중복될 때 경고를 표시한다("마지막 값만 적용됨" 안내).
   - 스캔(Trivy)은 dockerizer가 **트리거하지 않는다** — 사용자는 필요 시 AIPub backend의 Harbor/Trivy 결과를 활용한다(기획서 §7.2 취약점 스캔 결과 연동은 별도 백로그 유지).
+- **Dockerfile 이름 중복 방지** — `(Project, User, 이름)` 단위로 Dockerfile 이름이 유일하도록 강제한다(저장 단위 AC-1과 정합). 3중 방어: ① 프론트 사전 검사(목록 대조 → 저장 버튼 비활성·즉시 안내, UX) → ② 백엔드 서비스 `exists` 검사(authoritative, 중복 시 409 `DuplicateResourceException`) → ③ DB 유니크 제약(동시성 race 안전망, `DataIntegrityViolationException`도 409로 매핑). 리네임(수정) 시에도 자기 자신을 제외하고 동일 검사를 수행한다.
 
 ### 제한 · 보류
 
