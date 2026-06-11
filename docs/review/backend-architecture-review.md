@@ -94,9 +94,11 @@
 - 권장: C-1 전환 시 Lister 캐시 사용. 최소한 watch 로 받은 객체를 그대로 reconcile 에 넘겨 중복 GET 제거 가능.
 - **구현**: `reconcile(Request)` 가 `Lister<ImageBuildResource>`(informer 캐시)에서 CR 을 읽도록 변경 — live `getNamespacedCustomObject` GET 제거.
 
-#### C-5 🟡 Kaniko Job 안전장치 부재 (activeDeadlineSeconds·resources)
+#### C-5 🟡 Kaniko Job 안전장치 부재 (activeDeadlineSeconds·resources) — 🟢 부분 완료 (2026-06-11)
 `KanikoJobFactory.createKanikoJob` 의 Job/Pod 에 **`activeDeadlineSeconds` 가 없어** 멈춘(hung) 빌드가 무한정 노드를 점유한다. 또 Kaniko 컨테이너에 **resources requests/limits 가 없어** 공유 클러스터에서 메모리 폭주 시 노드를 위협할 수 있다(`backoffLimit(0)`·`ttlSecondsAfterFinished` 는 설정됨).
 - 권장: `activeDeadlineSeconds`(예: 30~60분, `ControllerProperties` 로 설정), Kaniko 컨테이너 resources(설정값)를 추가.
+- **구현 (activeDeadlineSeconds만)**: Job 에 `activeDeadlineSeconds` 부여. 기본값 `ControllerProperties.buildTimeoutSeconds=3600`(60분), CR `spec.buildTimeoutSeconds`(CRD 추가) 로 빌드별 override — 프론트 빌드 다이얼로그에서 **분 단위 입력 → 초 변환**해 CR 에 전달. `activeDeadlineSeconds` 는 wall-clock 상한일 뿐 "느린 빌드 vs 멈춘 빌드" 를 구분하지 못하므로, ① 정상 빌드는 닿지 않을 관대한 기본값 + 사용자 조정, ② 실패 사유가 `DeadlineExceeded` 면 빌드 에러와 구분해 "제한 시간(N분) 초과" 메시지로 표출(`ImageBuildReconciler.extractFailureMessage`)하는 방식으로 보완.
+- **미구현 (잔여)**: Kaniko 컨테이너 **resources requests/limits** 는 아직 없음 — 메모리 폭주 보호는 별도 작업으로 남음.
 
 #### C-6 🟡 `imageDigest` 가 항상 null
 `handleBuilding` 이 성공 시 `statusUpdater.markSucceeded(cr, null)` 로 **digest 를 항상 null** 로 기록한다. CRD·응답 DTO 에 `imageDigest` 필드가 있으나 채워지지 않는다.
@@ -282,7 +284,7 @@ NGC/HuggingFace 검색은 **외부 인터넷 호출**이다(`nvcr.io`, catalog A
 | 5 | **C-2** HPA 제거(또는 leader election) | 🟠 | k8s 패턴 | 소 |
 | 6 | **A-5** 인증 결과 캐싱 | 🟠 | 성능/가용성 | 소 |
 | 7 | **A-6/A-7** SSE 스레드풀 경계화 · exec 타임아웃 | 🟡 | 안정성 | 소~중 |
-| 8 | **C-5** Kaniko activeDeadlineSeconds·resources | 🟡 | 안정성 | 소 |
+| 8 | **C-5** Kaniko activeDeadlineSeconds·resources — 🟢 activeDeadlineSeconds 완료(2026-06-11), **resources 잔여** | 🟡 | 안정성 | 소 |
 | 8.5 | **C-9** 빌드 CM 을 terminal phase 에서 삭제(수명 분리) | 🟠 | 안정성/자원 | 소 |
 | 9 | **A-8/A-9** actuator 노출 축소 · 업로드 쿼터 | 🟡 | 보안/안정성 | 소 |
 | 10 | **C-6** imageDigest 채우기 | 🟡 | 기능완결 | 중 |

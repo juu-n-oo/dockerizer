@@ -117,9 +117,10 @@ ul.good li::before{content:"✓";position:absolute;left:.1em;color:var(--green);
 <div class='rec'><b>권장</b> — Lister 캐시 사용, 또는 받은 객체를 reconcile 에 그대로 전달해 중복 GET 제거.</div>
 <div class='rec'><b>✅ 구현 완료 (2026-06-11)</b> — <code>reconcile(Request)</code> 가 <code>Lister&lt;ImageBuildResource&gt;</code>(informer 캐시)에서 CR 을 읽도록 변경 — live <code>getNamespacedCustomObject</code> GET 제거.</div></div>
 
-<div class='finding m'><span class='t'><span class='sev m'>Medium</span> C-5 — Kaniko Job 안전장치 부재</span>
+<div class='finding m'><span class='t'><span class='sev ok'>부분</span> <span class='sev m'>Medium</span> C-5 — Kaniko Job 안전장치 부재</span>
 Job/Pod 에 <code>activeDeadlineSeconds</code> 가 없어 멈춘 빌드가 노드를 무한 점유하고, Kaniko 컨테이너에 resources requests/limits 가 없어 공유 클러스터에서 메모리 폭주 위험.
-<div class='rec'><b>권장</b> — <code>activeDeadlineSeconds</code>(설정값) + Kaniko resources(설정값) 추가.</div></div>
+<div class='rec'><b>권장</b> — <code>activeDeadlineSeconds</code>(설정값) + Kaniko resources(설정값) 추가.</div>
+<div class='rec'><b>🟢 부분 완료 (2026-06-11) — activeDeadlineSeconds</b> — Job 에 <code>activeDeadlineSeconds</code> 부여. 기본 <code>ControllerProperties.buildTimeoutSeconds=3600</code>(60분), CR <code>spec.buildTimeoutSeconds</code>(CRD 추가)로 빌드별 override — 프론트 다이얼로그에서 분 단위 입력 → 초 변환 전달. wall-clock 상한이라 "느린 빌드 vs 멈춘 빌드" 는 구분 못 하므로, 관대한 기본값+사용자 조정 + 실패 사유 <code>DeadlineExceeded</code> 분기 메시지로 보완. <b>잔여</b>: Kaniko resources requests/limits 는 미구현.</div></div>
 
 <div class='finding m'><span class='t'><span class='sev m'>Medium</span> C-6 — imageDigest 항상 null</span>
 성공 시 <code>markSucceeded(cr, null)</code> 로 digest 를 항상 null 기록. CRD·DTO 에 필드는 있으나 미충전.
@@ -284,7 +285,7 @@ NGC/HuggingFace 검색은 외부 인터넷 호출이다(<code>required=false</co
 <tr><td>5</td><td><b>C-2</b> HPA 제거(또는 leader election)</td><td><span class='sev h'>High</span></td><td>k8s 패턴</td><td>소</td></tr>
 <tr><td>6</td><td><b>A-5</b> 인증 결과 캐싱</td><td><span class='sev h'>High</span></td><td>성능/가용성</td><td>소</td></tr>
 <tr><td>7</td><td><b>A-6/A-7</b> SSE 스레드풀 경계화 · exec 타임아웃</td><td><span class='sev m'>Medium</span></td><td>안정성</td><td>소~중</td></tr>
-<tr><td>8</td><td><b>C-5</b> Kaniko deadline·resources</td><td><span class='sev m'>Medium</span></td><td>안정성</td><td>소</td></tr>
+<tr><td>8 <span class='sev ok'>부분</span></td><td><b>C-5</b> Kaniko deadline·resources <i>(deadline 완료 2026-06-11, resources 잔여)</i></td><td><span class='sev m'>Medium</span></td><td>안정성</td><td>소</td></tr>
 <tr><td>8.5</td><td><b>C-9</b> 빌드 CM 을 terminal phase 에서 삭제(수명 분리)</td><td><span class='sev h'>High</span></td><td>안정성/자원</td><td>소</td></tr>
 <tr><td>9</td><td><b>A-8/A-9</b> actuator 노출 축소 · 업로드 쿼터</td><td><span class='sev m'>Medium</span></td><td>보안/안정성</td><td>소</td></tr>
 <tr><td>10</td><td><b>C-6</b> imageDigest 채우기</td><td><span class='sev m'>Medium</span></td><td>기능완결</td><td>중</td></tr>
