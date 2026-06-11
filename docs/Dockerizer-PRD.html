@@ -83,7 +83,7 @@ li.ac ul{margin:.2em 0 0;padding-left:0;}li.ac ul li{list-style:none;margin:.32e
 </tr>
 <tr>
 <td>갱신</td>
-<td>2026-06-05 — Dockerfile 버전관리 In-Scope·AC 반영, 구현 결정 사항(10절) 신설, Volume 웹 업로드 제한 및 SFTPServer 재설계 Open Question 추가, 시스템 개요 다이어그램 Dockerizer 표기 정정, 외부 레지스트리(NGC/Hugging Face) → Image Catalog 전환<br>2026-06-10 — 이미지 메타데이터 라벨을 사용자 입력(Dockerfile 기록)·빌드 시 자동으로 분리 적용, 입력 위치를 빌드 다이얼로그→에디터로 이동, Dockerfile 이름 중복 방지 추가; 10절(구현 결정 사항) 요약·OCI 라벨 설명 추가, 절 참조 표기 통일(§→절), 개발/QA 일정 명시</td>
+<td>2026-06-05 — Dockerfile 버전관리 In-Scope·AC 반영, 구현 결정 사항(10절) 신설, Volume 웹 업로드 제한 및 SFTPServer 재설계 Open Question 추가, 시스템 개요 다이어그램 Dockerizer 표기 정정, 외부 레지스트리(NGC/Hugging Face) → Image Catalog 전환<br>2026-06-10 — 이미지 메타데이터 라벨을 사용자 입력(Dockerfile 기록)·빌드 시 자동으로 분리 적용, 입력 위치를 빌드 다이얼로그→에디터로 이동, Dockerfile 이름 중복 방지 추가; 10절(구현 결정 사항) 요약·OCI 라벨 설명 추가, 절 참조 표기 통일(§→절), 개발/QA 일정 명시<br>2026-06-11 — Image Catalog 프론트 연동 완료(<code>/image-catalog/api/images</code>·<code>/images/{name}</code> 조회 → base 이미지 선택 다이얼로그 기본 탭), "AIPub 제공 예정" → "제공" 표기 갱신</td>
 </tr>
 <tr>
 <td>일정</td>
@@ -195,7 +195,7 @@ li.ac ul{margin:.2em 0 0;padding-left:0;}li.ac ul li{list-style:none;margin:.32e
 <li>Project별 Dockerfile 생성·관리</li>
 <li>Dockerfile 작성 → 이미지 빌드 → ImageHub 푸시</li>
 <li>기존 ImageHub 이미지를 base로 재활용한 빌드 (Workspace Commit 대체 경로)</li>
-<li><strong>Image Catalog</strong> 이미지를 base로 활용 (AIPub 제공 예정 — 읽기 전용 큐레이션 이미지)</li>
+<li><strong>Image Catalog</strong> 이미지를 base로 활용 (AIPub 제공 — 읽기 전용 큐레이션 이미지, 프론트 연동 완료)</li>
 <li>AIPub Volume의 <strong>기존 파일을 선택</strong>해 빌드 컨텍스트로 활용</li>
 <li>Dockerfile 버전관리 — 리비전 / Diff / 롤백 (v1.2.0 구현 완료)</li>
 </ul>
@@ -256,7 +256,7 @@ li.ac ul{margin:.2em 0 0;padding-left:0;}li.ac ul li{list-style:none;margin:.32e
 <h2>8. 제약 · 비기능 요구 (Constraints / NFR)</h2>
 <ul>
 <li><strong>빌드 엔진 Kaniko 고정</strong>: Docker daemon 불필요, rootless 실행(보안 이점), 레이어 기반 캐시 지원.</li>
-<li><strong>Base 이미지 출처</strong>: 내부 ImageHub + Image Catalog(AIPub 제공 예정 — Harbor 전용 프로젝트의 읽기 전용 큐레이션 이미지).</li>
+<li><strong>Base 이미지 출처</strong>: 내부 ImageHub + Image Catalog(AIPub 제공 — Harbor 전용 프로젝트의 읽기 전용 큐레이션 이미지). 프론트는 <code>GET /image-catalog/api/images</code>·<code>/images/{name}</code> 로 조회해 base 이미지 선택 다이얼로그의 기본 탭으로 노출한다(전역·읽기 전용).</li>
 <li><strong>빌드 컨텍스트</strong>: AIPub Volume을 빌드 컨텍스트로 활용(학습 코드·데이터 포함).</li>
 <li><strong>인증 · 격리</strong>: AIPub User/OIDC 인증, 빌드 Job은 해당 Project namespace에서 실행, 기존 <code>imagePullSecret</code> 체계 재사용.</li>
 <li><strong>선언적 빌드</strong>: 빌드는 <code>ImageBuild</code> CR로 선언하고 컨트롤러가 Kaniko Job으로 수행하며 결과를 CR status에 반영(기존 AIPub CR 스타일과 일관).</li>
@@ -323,7 +323,7 @@ flowchart LR
 </tr>
 <tr>
 <td><strong>Image Catalog</strong></td>
-<td>AIPub 제공 예정 — 검증된 읽기 전용 base 이미지 카탈로그(Harbor 전용 프로젝트)</td>
+<td>AIPub 제공 — 검증된 읽기 전용 base 이미지 카탈로그(Harbor 전용 프로젝트). <code>/image-catalog/api</code> 로 프론트 연동 완료</td>
 </tr>
 <tr>
 <td><strong>AIPub Volume</strong></td>
