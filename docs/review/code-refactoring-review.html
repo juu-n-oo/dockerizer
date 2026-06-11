@@ -67,7 +67,7 @@ ul.good li::before{content:"✓";position:absolute;left:.1em;color:var(--green);
 </tbody></table></div>
 <p>기능 동작 자체는 견고하다. 리팩토링 여지는 주로 <strong>(1) 단일 진실원본 부재</strong>(라벨/상수/CR 모델/포맷 헬퍼가 모듈·페이지마다 재정의), <strong>(2) 타입 안전성 우회</strong>(<code>Map&lt;String,Object&gt;</code>+Gson 왕복, <code>unknown</code>/<code>as</code> 캐스트), <strong>(3) 거대 컴포넌트/메서드</strong>(에디터 페이지 1.9k 라인), <strong>(4) 반쪽짜리 i18n 채택</strong>, <strong>(5) 핵심 로직(컨트롤러 reconcile·CR 매핑)의 테스트 공백</strong>에 집중된다.</p>
 <blockquote><b>가장 효과가 큰 통합</b> — 백엔드의 <code>ImageBuildConstants</code>·CR 모델·라벨 키·<code>K8sProperties</code> 를 <b>공유 Gradle 모듈</b>로 추출하면 SRV-1·SRV-2·SRV-3·SRV-6·CTL-4 가 한 번에 해소된다(이미 drift 발생 — 컨트롤러 <code>ImageBuildSpec</code> 엔 <code>imageLabels</code> 가 있으나 서버엔 없음). 프론트는 <code>src/lib/</code>(format·build-phase·dockerfile-content) + <code>&lt;Pagination&gt;</code>/<code>useTableSelection</code> 추출이 동급 효과.</blockquote>
-<blockquote>구현 현황(2026-06-11): SRV-4·5·6·7·8·9·13·WEB-19 완료, SRV-3·12 부분완료. 별도 작업으로 라벨/CRD group 을 <code>aipub.ten1010.io</code> 로 이관(SRV-2 의 '상수 단일화'와는 무관 — 라벨 정의는 여전히 백/컨트롤러/프론트 3곳, prefix 만 변경됨).</blockquote>
+<blockquote>구현 현황(2026-06-11): SRV-4·5·6·7·8·9·13·WEB-19, CTL-1·2·3·4·6·7·8·9·10 완료, WEB-1~21 프론트 리팩토링 완료(WEB-5 부분완료), SRV-3·12 부분완료. 별도 작업으로 라벨/CRD group 을 <code>aipub.ten1010.io</code> 로 이관(SRV-2 의 '상수 단일화'와는 무관 — 라벨 정의는 여전히 백/컨트롤러/프론트 3곳, prefix 만 변경됨).</blockquote>
 
 <h2>1. 공통 횡단 테마</h2>
 <ol>
@@ -184,90 +184,110 @@ apiVersion/kind/policy(<code>"v1"</code>,<code>"ConfigMap"</code>,<code>"batch/v
 
 <h2>4. 프론트엔드 (<code>dockerizer-web</code>)</h2>
 
-<div class='finding h'><span class='t'><span class='sev h'>High</span> WEB-1 — DockerfileEditorPage.tsx 1,891줄 god-component</span>
+<div class='finding h'><span class='t'><span class='sev ok'>완료</span> <span class='sev h'>High</span> WEB-1 — DockerfileEditorPage.tsx 1,891줄 god-component</span>
 순수 헬퍼(<code>parseDockerfileContent</code>/<code>generateDockerfileContent</code>/<code>buildLabelLines</code>)부터 <code>~20 useState + 7 useEffect</code>, 폼 제출, 빌드/저장 다이얼로그, 이미지 셀렉터, 두 개의 큰 중첩 JSX 다이얼로그까지 한 파일이 소유. 단위 테스트 불가 + 최고 churn 위험.
-<div class='rec'><b>권장</b> — 순수 함수 → <code>src/lib/dockerfile-content.ts</code>, <code>&lt;BuildDialog&gt;</code>/<code>&lt;SaveRevisionDialog&gt;</code>/<code>&lt;LabelEditor&gt;</code> 컴포넌트 추출, 동기화·dirty 추적은 <code>useDockerfileEditorState</code> 훅. 목표: 페이지 &lt; 300줄.</div></div>
+<div class='rec'><b>권장</b> — 순수 함수 → <code>src/lib/dockerfile-content.ts</code>, <code>&lt;BuildDialog&gt;</code>/<code>&lt;SaveRevisionDialog&gt;</code>/<code>&lt;LabelEditor&gt;</code> 컴포넌트 추출, 동기화·dirty 추적은 <code>useDockerfileEditorState</code> 훅. 목표: 페이지 &lt; 300줄.</div>
+<div class='rec'><b>✅ 완료(2026-06-11)</b> — DockerfileEditorPage god-component 분해 — 순수 fn → <code>lib/dockerfile-content.ts</code>, <code>useDockerfileEditorState</code> 훅 + <code>BuildDialog</code>/<code>SaveRevisionDialog</code>/<code>LabelEditor</code>/<code>InstructionBlock</code> 추출(페이지 ~1.9k→~700줄).</div></div>
 
-<div class='finding h'><span class='t'><span class='sev h'>High</span> WEB-2 — handleBuild 내 빌드 옵션/다이얼로그 정리 3중 중복</span>
+<div class='finding h'><span class='t'><span class='sev ok'>완료</span> <span class='sev h'>High</span> WEB-2 — handleBuild 내 빌드 옵션/다이얼로그 정리 3중 중복</span>
 <code>mutate(..., {onSuccess,onError})</code> + 동일 <code>setShowBuildDialog(false); …; navigate(...)</code> 정리가 EDIT/CREATE-성공/CREATE-실패 3경로 반복. "COPY 볼륨 자동 감지" 도 두 버튼에 복붙.
-<div class='rec'><b>권장</b> — 기존 <code>startBuild(df)</code> 클로저로 경로 라우팅, 볼륨 감지를 <code>resolveBuildContextVolume()</code> 로 추출, 다이얼로그 정리를 단일 <code>finishBuild</code> 로.</div></div>
+<div class='rec'><b>권장</b> — 기존 <code>startBuild(df)</code> 클로저로 경로 라우팅, 볼륨 감지를 <code>resolveBuildContextVolume()</code> 로 추출, 다이얼로그 정리를 단일 <code>finishBuild</code> 로.</div>
+<div class='rec'><b>✅ 완료(2026-06-11)</b> — <code>startBuild</code>/<code>finishBuild</code>/<code>resolveBuildContextVolume</code> 로 빌드 옵션 조립·다이얼로그 정리 3중 중복 통합.</div></div>
 
-<div class='finding h'><span class='t'><span class='sev h'>High</span> WEB-3 — phaseConfig 가 형태 다른 채 두 번 정의 + phase 순서 하드코딩</span>
+<div class='finding h'><span class='t'><span class='sev ok'>완료</span> <span class='sev h'>High</span> WEB-3 — phaseConfig 가 형태 다른 채 두 번 정의 + phase 순서 하드코딩</span>
 <code>BuildDetailPage</code>(<code>{label,variant,icon}</code>)와 <code>BuildListPage</code>(<code>{label,color,dotClass}</code>)가 phase→라벨/색을 각자 정의, 한국어 라벨 양쪽 하드코딩, 순서 배열·<code>buildSteps</code> 인라인.
-<div class='rec'><b>권장</b> — <code>src/lib/build-phase.ts</code> 에 단일 <code>BUILD_PHASES</code> + <code>phaseMeta</code>(라벨은 <code>t()</code>) 두고 두 페이지 공유.</div></div>
+<div class='rec'><b>권장</b> — <code>src/lib/build-phase.ts</code> 에 단일 <code>BUILD_PHASES</code> + <code>phaseMeta</code>(라벨은 <code>t()</code>) 두고 두 페이지 공유.</div>
+<div class='rec'><b>✅ 완료(2026-06-11)</b> — <code>lib/build-phase.ts</code> 단일 <code>BUILD_PHASES</code>+<code>phaseMeta</code>(라벨 t()) 두 페이지 공유.</div></div>
 
-<div class='finding h'><span class='t'><span class='sev h'>High</span> WEB-4 — 죽은/잘못된 i18n build.phase.* 키</span>
+<div class='finding h'><span class='t'><span class='sev ok'>완료</span> <span class='sev h'>High</span> WEB-4 — 죽은/잘못된 i18n build.phase.* 키</span>
 locale <code>build.phase</code> 가 <code>Pending/Running/Succeeded/Failed</code> 인데 <code>BuildPhase</code> 는 <code>Pending|Preparing|Building|Succeeded|Failed</code> — <b><code>Running</code> 없음, <code>Preparing</code>/<code>Building</code> 누락</b>, 사용처 0.
-<div class='rec'><b>권장</b> — 블록 삭제 또는(권장: WEB-3 과 함께) 실제 union 에 맞춰 정렬해 정식 라벨 소스로.</div></div>
+<div class='rec'><b>권장</b> — 블록 삭제 또는(권장: WEB-3 과 함께) 실제 union 에 맞춰 정렬해 정식 라벨 소스로.</div>
+<div class='rec'><b>✅ 완료(2026-06-11)</b> — <code>build.phase</code> 로케일 블록을 실제 <code>BuildPhase</code> union 에 맞춰 정렬(Running 제거, Preparing/Building 추가).</div></div>
 
-<div class='finding h'><span class='t'><span class='sev h'>High</span> WEB-5 — i18n 우회 한국어 하드코딩 만연</span>
+<div class='finding h'><span class='t'><span class='sev ok'>부분완료</span> <span class='sev h'>High</span> WEB-5 — i18n 우회 한국어 하드코딩 만연</span>
 에디터·<code>BuildDetailPage</code>·리스트 페이지·<code>ImageSelector</code> 등에서 수백 문자열이 인라인 한국어(locale 은 ~30키뿐). <b>반쪽 i18n 은 미적용보다 나쁘다</b> — <code>en</code> 사용자가 영어/한국어를 섞어 봄.
-<div class='rec'><b>권장</b> — 우선순위 페이지부터 <code>editor.*</code>/<code>build.*</code>/<code>common.*</code> 로 스윕, 반복 리터럴(<code>'모든 프로젝트'</code> 등) 공유 키화.</div></div>
+<div class='rec'><b>권장</b> — 우선순위 페이지부터 <code>editor.*</code>/<code>build.*</code>/<code>common.*</code> 로 스윕, 반복 리터럴(<code>'모든 프로젝트'</code> 등) 공유 키화.</div>
+<div class='rec'><b>🟢 부분완료(2026-06-11)</b> — editor/BuildDetailPage/BuildListPage/DockerfileListPage/ImageSelector 등 UI 표시 문자열을 ko/en i18n 으로 스윕. 단 DockerfileEditorPage 의 Zod 스키마 검증 메시지는 한국어 리터럴로 남김(스키마에 t() 주입은 별개 작업으로 보류).</div></div>
 
-<div class='finding h'><span class='t'><span class='sev h'>High</span> WEB-6 — api/k8s.ts 가 apiClient 대신 fetch 래퍼 재구현</span>
+<div class='finding h'><span class='t'><span class='sev ok'>완료</span> <span class='sev h'>High</span> WEB-6 — api/k8s.ts 가 apiClient 대신 fetch 래퍼 재구현</span>
 <code>k8sRequest</code> 가 <code>api-client.ts</code> 의 <code>request</code> 를 통째 중복. CR 호출만 자체 래퍼라 <b>HTTP 계층 이원화</b>. <code>k8sRequest</code> 는 RFC-7807 <code>detail</code> 무시 → CR 오류는 불투명 코드, 백엔드 오류는 가독 메시지로 비일관. 401 리다이렉트 3곳 복붙.
-<div class='rec'><b>권장</b> — <code>apiClient</code> 에 base path 옵션(또는 동일 <code>request</code> 기반 <code>k8sClient</code>) 추가해 일원화 + <code>k8sRequest</code> 제거.</div></div>
+<div class='rec'><b>권장</b> — <code>apiClient</code> 에 base path 옵션(또는 동일 <code>request</code> 기반 <code>k8sClient</code>) 추가해 일원화 + <code>k8sRequest</code> 제거.</div>
+<div class='rec'><b>✅ 완료(2026-06-11)</b> — HTTP 계층 통합 — <code>api-client.ts</code> 에 <code>k8sClient</code>(base-path 변형, 동일 request 재사용) 추가, <code>k8sRequest</code> 제거.</div></div>
 
-<div class='finding m'><span class='t'><span class='sev m'>Medium</span> WEB-7 — 날짜/age/duration/이미지명 헬퍼 중복</span>
+<div class='finding m'><span class='t'><span class='sev ok'>완료</span> <span class='sev m'>Medium</span> WEB-7 — 날짜/age/duration/이미지명 헬퍼 중복</span>
 <code>formatDateTime</code>(3곳), <code>formatCreatedAt</code>, <code>formatAge</code>, <code>formatDuration</code>, <code>shortenImageName</code>/<code>shortenImage</code>(<code>&gt;2</code> vs <code>&gt;=3</code> 불일치)가 복붙.
-<div class='rec'><b>권장</b> — <code>src/lib/format.ts</code> 로 통합, 단축 동작 차이 정리.</div></div>
+<div class='rec'><b>권장</b> — <code>src/lib/format.ts</code> 로 통합, 단축 동작 차이 정리.</div>
+<div class='rec'><b>✅ 완료(2026-06-11)</b> — <code>lib/format.ts</code>(formatDateTime/formatRelativeAge/formatDuration/shortenImageRef), <code>&gt;2</code>/<code>&gt;=3</code> 불일치를 <code>&gt;=3</code> 으로 통일.</div></div>
 
-<div class='finding m'><span class='t'><span class='sev m'>Medium</span> WEB-8 — PageBtn·페이지네이션·선택 로직 중복</span>
+<div class='finding m'><span class='t'><span class='sev ok'>완료</span> <span class='sev m'>Medium</span> WEB-8 — PageBtn·페이지네이션·선택 로직 중복</span>
 <code>PageBtn</code> 과 페이지네이션 JSX, <code>toggleAll</code>/<code>toggleOne</code>/<code>buildKey</code> 선택 Set 로직이 두 리스트 페이지에 거의 동일.
-<div class='rec'><b>권장</b> — <code>&lt;Pagination&gt;</code> 컴포넌트 + <code>useTableSelection&lt;T&gt;</code> 훅 추출.</div></div>
+<div class='rec'><b>권장</b> — <code>&lt;Pagination&gt;</code> 컴포넌트 + <code>useTableSelection&lt;T&gt;</code> 훅 추출.</div>
+<div class='rec'><b>✅ 완료(2026-06-11)</b> — <code>&lt;Pagination&gt;</code> + <code>useTableSelection&lt;T,K&gt;</code> 추출, 두 리스트 페이지 마이그레이션.</div></div>
 
-<div class='finding m'><span class='t'><span class='sev m'>Medium</span> WEB-9 — CR 처리의 타입 안전성 공백</span>
+<div class='finding m'><span class='t'><span class='sev ok'>완료</span> <span class='sev m'>Medium</span> WEB-9 — CR 처리의 타입 안전성 공백</span>
 <code>createImageBuild(cr: unknown)</code>, <code>spec:{targetImage; [key]:unknown}</code>, <code>imageLabels as Record</code> 캐스트, <code>InstructionBlock</code> 의 <code>volumes?: unknown</code>(선언만, 미사용).
-<div class='rec'><b>권장</b> — 제대로 된 <code>ImageBuildSpec</code> 인터페이스 + 생성용 <code>ImageBuildCrInput</code> 타입, 미사용 <code>volumes</code> prop 제거.</div></div>
+<div class='rec'><b>권장</b> — 제대로 된 <code>ImageBuildSpec</code> 인터페이스 + 생성용 <code>ImageBuildCrInput</code> 타입, 미사용 <code>volumes</code> prop 제거.</div>
+<div class='rec'><b>✅ 완료(2026-06-11)</b> — <code>ImageBuildSpec</code>/<code>ImageBuildCrInput</code> 타입화, <code>cr: unknown</code>/<code>as Record</code> 캐스트·미사용 <code>volumes</code> prop 제거.</div></div>
 
-<div class='finding m'><span class='t'><span class='sev m'>Medium</span> WEB-10 — run/rebuild 의 CR 조립 중복</span>
+<div class='finding m'><span class='t'><span class='sev ok'>완료</span> <span class='sev m'>Medium</span> WEB-10 — run/rebuild 의 CR 조립 중복</span>
 두 함수가 동일 <code>{apiVersion,kind,metadata:{generateName,namespace,labels,annotations},spec}</code> 골격을 각자 조립.
-<div class='rec'><b>권장</b> — <code>makeImageBuildCr({namespace,labels,annotations,spec})</code> 헬퍼 추출.</div></div>
+<div class='rec'><b>권장</b> — <code>makeImageBuildCr({namespace,labels,annotations,spec})</code> 헬퍼 추출.</div>
+<div class='rec'><b>✅ 완료(2026-06-11)</b> — <code>lib/image-build-cr.ts</code> <code>makeImageBuildCr</code> 헬퍼로 run/rebuild CR 조립 통합.</div></div>
 
-<div class='finding m'><span class='t'><span class='sev m'>Medium</span> WEB-11 — 폴링·timeout 경계의 매직 넘버</span>
+<div class='finding m'><span class='t'><span class='sev ok'>완료</span> <span class='sev m'>Medium</span> WEB-11 — 폴링·timeout 경계의 매직 넘버</span>
 <code>3000</code>/<code>5000</code> 폴링, 타임아웃 clamp <code>Math.min(360,Math.max(1,…||60))</code> 가 input <code>min/max</code> 와 따로 존재, <code>5*60*1000</code> staleTime 중복.
-<div class='rec'><b>권장</b> — <code>BUILD_POLL_MS</code>/<code>LOG_POLL_MS</code>/<code>BUILD_TIMEOUT_{MIN,MAX,DEFAULT}</code> named 상수 공유.</div></div>
+<div class='rec'><b>권장</b> — <code>BUILD_POLL_MS</code>/<code>LOG_POLL_MS</code>/<code>BUILD_TIMEOUT_{MIN,MAX,DEFAULT}</code> named 상수 공유.</div>
+<div class='rec'><b>✅ 완료(2026-06-11)</b> — <code>lib/constants.ts</code>(BUILD_POLL_MS/LOG_POLL_MS/DEFAULT_STALE_MS/BUILD_TIMEOUT_*).</div></div>
 
-<div class='finding m'><span class='t'><span class='sev m'>Medium</span> WEB-12 — 쿼리 키 형태 비일관</span>
+<div class='finding m'><span class='t'><span class='sev ok'>완료</span> <span class='sev m'>Medium</span> WEB-12 — 쿼리 키 형태 비일관</span>
 <code>[KEY,{project}]</code> vs <code>[KEY,ns,name]</code>(위치형) vs <code>[...,'logs']</code> 혼재. invalidate 가 prefix 매칭에 의존.
-<div class='rec'><b>권장</b> — 쿼리 키 팩토리(<code>buildKeys.list/detail/logs</code>) 채택.</div></div>
+<div class='rec'><b>권장</b> — 쿼리 키 팩토리(<code>buildKeys.list/detail/logs</code>) 채택.</div>
+<div class='rec'><b>✅ 완료(2026-06-11)</b> — <code>lib/query-keys.ts</code> <code>buildKeys.{all,list,detail,logs}</code> 채택.</div></div>
 
-<div class='finding m'><span class='t'><span class='sev m'>Medium</span> WEB-13 — mutation 오류 처리 비일관</span>
+<div class='finding m'><span class='t'><span class='sev ok'>완료</span> <span class='sev m'>Medium</span> WEB-13 — mutation 오류 처리 비일관</span>
 create/update 엔 <code>onError</code> 토스트가 있으나 <b>EDIT 경로 <code>runBuildMutation</code> 엔 없음</b> → 실패가 조용히 무시. <code>useRebuild</code> 도 오류 표면 없음 → 재빌드 실패 비가시.
-<div class='rec'><b>권장</b> — QueryClient 기본 <code>onError</code> 또는 <code>useMutationToast</code> 표준화, 최소 EDIT/rebuild 에 <code>onError</code> 추가.</div></div>
+<div class='rec'><b>권장</b> — QueryClient 기본 <code>onError</code> 또는 <code>useMutationToast</code> 표준화, 최소 EDIT/rebuild 에 <code>onError</code> 추가.</div>
+<div class='rec'><b>✅ 완료(2026-06-11)</b> — EDIT <code>startBuild</code> 와 rebuild 호출에 onError 토스트 추가.</div></div>
 
-<div class='finding m'><span class='t'><span class='sev m'>Medium</span> WEB-14 — (e as Error).message 캐스트 반복</span>
+<div class='finding m'><span class='t'><span class='sev ok'>완료</span> <span class='sev m'>Medium</span> WEB-14 — (e as Error).message 캐스트 반복</span>
 에디터 토스트 4곳 + <code>api-client.ts</code> 가 무타입 <code>any</code> 에서 <code>message</code>/<code>detail</code> 을 읽음.
-<div class='rec'><b>권장</b> — <code>getErrorMessage(e: unknown): string</code> 유틸 통일, ProblemDetail 타입화.</div></div>
+<div class='rec'><b>권장</b> — <code>getErrorMessage(e: unknown): string</code> 유틸 통일, ProblemDetail 타입화.</div>
+<div class='rec'><b>✅ 완료(2026-06-11)</b> — <code>lib/errors.ts</code> <code>getErrorMessage(e: unknown)</code> + ProblemDetail 타입으로 캐스트 통일.</div></div>
 
-<div class='finding l'><span class='t'><span class='sev l'>Low</span> WEB-15 — form↔editor 전환 시 미지원 지시자 소실</span>
+<div class='finding l'><span class='t'><span class='sev ok'>완료</span> <span class='sev l'>Low</span> WEB-15 — form↔editor 전환 시 미지원 지시자 소실</span>
 <code>switchToForm</code> 이 재파싱·재생성하며 ENTRYPOINT/ARG/multistage 드롭(문서화됨). 의도적이나 데이터 소실 footgun.
-<div class='rec'><b>권장</b> — 전환 시 콘텐츠 소실 경고 가드 검토.</div></div>
+<div class='rec'><b>권장</b> — 전환 시 콘텐츠 소실 경고 가드 검토.</div>
+<div class='rec'><b>✅ 완료(2026-06-11)</b> — 에디터→폼 전환 시 데이터 소실 경고(window.confirm) 가드 추가.</div></div>
 
-<div class='finding l'><span class='t'><span class='sev l'>Low</span> WEB-16 — instrTypeOptions 라벨/설명/아이콘 한국어 하드코딩</span>
+<div class='finding l'><span class='t'><span class='sev ok'>완료</span> <span class='sev l'>Low</span> WEB-16 — instrTypeOptions 라벨/설명/아이콘 한국어 하드코딩</span>
 WEB-5 의 i18n 공백이 표시 문자열을 config 배열에 결합.
-<div class='rec'><b>권장</b> — i18n 으로 접기.</div></div>
+<div class='rec'><b>권장</b> — i18n 으로 접기.</div>
+<div class='rec'><b>✅ 완료(2026-06-11)</b> — instruction-type 옵션 라벨/설명을 i18n 으로.</div></div>
 
-<div class='finding l'><span class='t'><span class='sev l'>Low</span> WEB-17 — getStepStatus 가 매 호출 phase 배열 재할당</span>
+<div class='finding l'><span class='t'><span class='sev ok'>완료</span> <span class='sev l'>Low</span> WEB-17 — getStepStatus 가 매 호출 phase 배열 재할당</span>
 <code>['Pending','Preparing','Building','Push']</code> 를 함수 내부에서 step·render 마다 할당.
-<div class='rec'><b>권장</b> — 모듈 상수로 호이스트(WEB-3 연계).</div></div>
+<div class='rec'><b>권장</b> — 모듈 상수로 호이스트(WEB-3 연계).</div>
+<div class='rec'><b>✅ 완료(2026-06-11)</b> — phase 배열을 모듈 상수로 호이스트(WEB-3 의 build-phase 로 흡수).</div></div>
 
-<div class='finding l'><span class='t'><span class='sev l'>Low</span> WEB-18 — BuildDetailPage 날짜만 toLocaleString('ko-KR')</span>
+<div class='finding l'><span class='t'><span class='sev ok'>완료</span> <span class='sev l'>Low</span> WEB-18 — BuildDetailPage 날짜만 toLocaleString('ko-KR')</span>
 다른 두 페이지의 수동 패딩과 같은 개념(생성 시각)에 다른 포맷.
-<div class='rec'><b>권장</b> — <code>lib/format.ts</code>(WEB-7)로 통일.</div></div>
+<div class='rec'><b>권장</b> — <code>lib/format.ts</code>(WEB-7)로 통일.</div>
+<div class='rec'><b>✅ 완료(2026-06-11)</b> — BuildDetailPage 날짜 포맷을 <code>lib/format</code> 으로 통일.</div></div>
 
 <div class='finding l'><span class='t'><span class='sev ok'>완료</span> <span class='sev l'>Low</span> WEB-19 — ImageSelector catalog placeholder + 죽은 NGC/HF 코드</span>
 <code>catalog</code> 탭이 영구 "준비 중" placeholder, 대응 <code>useNgc*</code>/<code>useHuggingface*</code> 훅·<code>k8s.ts</code> 레지스트리 메서드가 어디서도 import 안 되는 dead code 로 보임.
 <div class='rec'><b>권장</b> — 확인 후 catalog 보류면 제거.</div>
 <div class='rec'><b>✅ 완료(2026-06-11)</b> — catalog 탭·<code>useNgc*</code>/<code>useHuggingface*</code> 훅·k8s api 메서드·관련 타입·MSW 핸들러 제거(외부 레지스트리 제거와 함께).</div></div>
 
-<div class='finding l'><span class='t'><span class='sev l'>Low</span> WEB-20 — env 읽기 중복</span>
+<div class='finding l'><span class='t'><span class='sev ok'>완료</span> <span class='sev l'>Low</span> WEB-20 — env 읽기 중복</span>
 <code>VITE_HARBOR_URL</code> 양쪽, <code>API_BASE_URL</code> 유도가 <code>k8s.ts</code>·<code>api-client.ts</code>·<code>useBuilds.ts</code> 반복.
-<div class='rec'><b>권장</b> — <code>src/lib/env.ts</code> 단일 모듈에서 타입화 config export.</div></div>
+<div class='rec'><b>권장</b> — <code>src/lib/env.ts</code> 단일 모듈에서 타입화 config export.</div>
+<div class='rec'><b>✅ 완료(2026-06-11)</b> — <code>lib/env.ts</code> 타입화 config(API_BASE_URL/HARBOR_URL).</div></div>
 
-<div class='finding l'><span class='t'><span class='sev l'>Low</span> WEB-21 — nextInstrId 모듈 레벨 가변 카운터</span>
+<div class='finding l'><span class='t'><span class='sev ok'>완료</span> <span class='sev l'>Low</span> WEB-21 — nextInstrId 모듈 레벨 가변 카운터</span>
 모듈 수명 동안 단조 증가하는 공유 가변 상태.
-<div class='rec'><b>권장</b> — <code>useRef</code>/<code>crypto.randomUUID()</code> 로 대체.</div></div>
+<div class='rec'><b>권장</b> — <code>useRef</code>/<code>crypto.randomUUID()</code> 로 대체.</div>
+<div class='rec'><b>✅ 완료(2026-06-11)</b> — <code>nextInstrId</code> 모듈 카운터 → <code>crypto.randomUUID()</code>.</div></div>
 
 <h2>5. 권장 진행 순서</h2>
 <h3>1순위 — High · 구조적</h3>

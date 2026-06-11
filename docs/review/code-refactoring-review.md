@@ -24,7 +24,7 @@
 
 **가장 효과가 큰 통합 작업** — 백엔드의 `ImageBuildConstants`·CR 모델(`ImageBuildSpec`/`ImageBuildStatus`)·라벨 키·`K8sProperties` 를 **공유 Gradle 모듈**로 추출하면 SRV-1·SRV-2·SRV-3·SRV-6·CTL-4 의 상당 부분이 한 번에 해소된다(이미 drift 발생 — 컨트롤러의 `ImageBuildSpec` 에는 `imageLabels` 가 있으나 서버 쪽엔 없음). 프론트는 `src/lib/`(format·build-phase·dockerfile-content) + `<Pagination>`/`useTableSelection` 추출이 동급의 효과를 낸다.
 
-> 구현 현황(2026-06-11): SRV-4·5·6·7·8·9·13·WEB-19, **CTL-1·2·3·4·6·7·8·9·10** 완료, SRV-3·12 부분완료. CTL-5(status patch Gson 왕복·실패 전파)는 이번 범위 외로 미해소. 별도 작업으로 라벨/CRD group 을 `aipub.ten1010.io` 로 이관(SRV-2 의 '상수 단일화'와는 무관 — 라벨 정의는 여전히 백/컨트롤러/프론트 3곳, prefix 만 변경됨).
+> 구현 현황(2026-06-11): SRV-4·5·6·7·8·9·13·WEB-19, **CTL-1·2·3·4·6·7·8·9·10** 완료, **WEB-1~21 프론트 리팩토링 완료(WEB-5 부분완료)**, SRV-3·12 부분완료. CTL-5(status patch Gson 왕복·실패 전파)는 이번 범위 외로 미해소. 별도 작업으로 라벨/CRD group 을 `aipub.ten1010.io` 로 이관(SRV-2 의 '상수 단일화'와는 무관 — 라벨 정의는 여전히 백/컨트롤러/프론트 3곳, prefix 만 변경됨).
 
 ---
 
@@ -162,85 +162,105 @@ apiVersion/kind/policy 리터럴(`"v1"`,`"ConfigMap"`,`"batch/v1"`,`"Job"`,`"Nev
 
 ## 4. 프론트엔드 (`dockerizer-web`)
 
-### WEB-1 — `DockerfileEditorPage.tsx` 1,891줄 god-component · **High**
+### WEB-1 — `DockerfileEditorPage.tsx` 1,891줄 god-component · **High** · ✅ 완료
+> ✅ **완료(2026-06-11)**: DockerfileEditorPage god-component 분해 — 순수 fn → `lib/dockerfile-content.ts`, `useDockerfileEditorState` 훅 + `BuildDialog`/`SaveRevisionDialog`/`LabelEditor`/`InstructionBlock` 추출(페이지 ~1.9k→~700줄).
 순수 헬퍼(`parseDockerfileContent`/`generateDockerfileContent`/`buildLabelLines`/`parseLabelInstruction`)부터 `~20 useState + 7 useEffect`, 폼 제출, 빌드/저장 다이얼로그, 이미지 셀렉터 와이어링, 두 개의 큰 중첩 JSX 다이얼로그까지 한 파일이 소유. 단위 테스트 불가 + 최고 churn 위험.
 **권장** — 순수 함수는 `src/lib/dockerfile-content.ts` 로(React 무관, 테스트 가능), `<BuildDialog>`/`<SaveRevisionDialog>`/`<LabelEditor>` 컴포넌트 추출, 폼/콘텐츠 동기화·dirty 추적은 `useDockerfileEditorState` 훅으로. 목표: 페이지 < 300줄 오케스트레이션.
 
-### WEB-2 — `handleBuild` 내 빌드 옵션 조립·다이얼로그 정리 로직 3중 중복 · **High**
+### WEB-2 — `handleBuild` 내 빌드 옵션 조립·다이얼로그 정리 로직 3중 중복 · **High** · ✅ 완료
+> ✅ **완료(2026-06-11)**: `startBuild`/`finishBuild`/`resolveBuildContextVolume` 로 빌드 옵션 조립·다이얼로그 정리 3중 중복 통합.
 `runBuildMutation.mutate(..., {onSuccess, onError})` + 동일한 `setShowBuildDialog(false); setBuildAfterCreate(false); navigate(...)` 정리가 EDIT/CREATE-성공/CREATE-실패 3경로에 반복. "COPY 볼륨 자동 감지" 블록도 두 빌드 버튼에 동일 복붙.
 **권장** — 이미 존재하는 `startBuild(df)` 클로저로 EDIT·CREATE-성공 경로를 모두 라우팅, 볼륨 자동 감지를 `resolveBuildContextVolume()` 로 추출, 다이얼로그 정리/네비게이션을 mutation `onSuccess` 또는 단일 `finishBuild` 로 이동.
 
-### WEB-3 — `phaseConfig` 가 형태가 다른 채 두 번 정의 + phase 순서 하드코딩 · **High**
+### WEB-3 — `phaseConfig` 가 형태가 다른 채 두 번 정의 + phase 순서 하드코딩 · **High** · ✅ 완료
+> ✅ **완료(2026-06-11)**: `lib/build-phase.ts` 단일 `BUILD_PHASES`+`phaseMeta`(라벨 t()) 두 페이지 공유.
 `BuildDetailPage`(`{label,variant,icon}`)와 `BuildListPage`(`{label,color,dotClass}`)가 phase→라벨/색을 각자 정의, 한국어 라벨도 양쪽 하드코딩. phase 순서 배열·`buildSteps` 도 인라인.
 **권장** — `src/lib/build-phase.ts`(또는 `usePhaseMeta`)에 단일 `BUILD_PHASES` 순서 + `phaseMeta` record(라벨은 `t()`)를 두고 두 페이지가 공유.
 
-### WEB-4 — 죽은/잘못된 i18n `build.phase.*` 키 · **High**
+### WEB-4 — 죽은/잘못된 i18n `build.phase.*` 키 · **High** · ✅ 완료
+> ✅ **완료(2026-06-11)**: `build.phase` 로케일 블록을 실제 `BuildPhase` union 에 맞춰 정렬(Running 제거, Preparing/Building 추가).
 locale 의 `build.phase` 블록이 `Pending/Running/Succeeded/Failed` 인데 `BuildPhase` 는 `Pending|Preparing|Building|Succeeded|Failed` — **`Running` 은 없고 `Preparing`/`Building` 누락**, 게다가 `t('build.phase'` 사용처 0. phase 라벨은 대신 컴포넌트에 하드코딩(WEB-3).
 **권장** — `build.phase` 블록을 삭제하거나(권장: WEB-3 과 함께) 실제 `BuildPhase` union 에 맞춰 정렬해 정식 라벨 소스로 삼는다.
 
-### WEB-5 — i18n 을 우회하는 한국어 하드코딩 만연 · **High**
+### WEB-5 — i18n 을 우회하는 한국어 하드코딩 만연 · **High** · 🟢 부분완료
+> 🟢 **부분완료(2026-06-11)**: editor/BuildDetailPage/BuildListPage/DockerfileListPage/ImageSelector 등 UI 표시 문자열을 ko/en i18n 으로 스윕. 단 DockerfileEditorPage 의 Zod 스키마 검증 메시지는 한국어 리터럴로 남김(스키마에 t() 주입은 별개 작업으로 보류).
 대표 예: 에디터(`'기본 설정'`,`'베이스 이미지'`,`'생성 후 빌드'`,`'변경 사항 저장'`, 빌드 다이얼로그 본문, `InstructionBlock` 문자열), `BuildDetailPage`(`'빌드 상세'`,`'빌드 단계'`,`'빌드 정보'`, 스텝/phase 라벨, `'목록으로'`), 리스트 페이지(`'모든 프로젝트'`,`'빌드 기록이 없습니다'`), `ImageSelector`(`'Base Image 선택'`,`'준비 중'` 등).
 **문제** — 반쪽 i18n 은 미적용보다 나쁘다 — `en` 사용자가 `t()` 영어와 하드코딩 한국어를 섞어 보게 됨. locale 은 ~30키뿐인데 수백 문자열이 인라인.
 **권장** — 위 페이지 우선으로 사용자 노출 문자열을 `editor.*`/`build.*`/`common.*` 네임스페이스로 스윕. 반복 리터럴(`'모든 프로젝트'`, "of N pages", "Rows per page")은 공유 키화.
 
-### WEB-6 — `api/k8s.ts` 가 `apiClient` 대신 fetch/에러 래퍼를 재구현 · **High**
+### WEB-6 — `api/k8s.ts` 가 `apiClient` 대신 fetch/에러 래퍼를 재구현 · **High** · ✅ 완료
+> ✅ **완료(2026-06-11)**: HTTP 계층 통합 — `api-client.ts` 에 `k8sClient`(base-path 변형, 동일 request 재사용) 추가, `k8sRequest` 제거.
 `k8sRequest` 가 `api-client.ts` 의 `request`(credentials/JSON 헤더/401→`/welcome`/`!ok` throw)를 통째 중복. `k8sApi` 는 volume/registry 호출엔 `apiClient` 를 쓰면서 CR 호출만 자체 래퍼 사용.
 **문제** — HTTP 계층 이원화. `k8sRequest` 는 `K8s API error: <status>` 만 던지고 RFC-7807 `detail` 무시 → CR 생성 오류는 불투명 코드로, 백엔드 오류는 가독 메시지로 표출되는 비일관. 401 리다이렉트도 3곳 복붙.
 **권장** — `apiClient` 에 base path 옵션(또는 동일 `request` 기반 `k8sClient`)을 추가해 401 리다이렉트·에러 추출을 일원화하고 `k8sRequest` 제거.
 
-### WEB-7 — 날짜/age/duration/이미지명 헬퍼 중복 · **Medium**
+### WEB-7 — 날짜/age/duration/이미지명 헬퍼 중복 · **Medium** · ✅ 완료
+> ✅ **완료(2026-06-11)**: `lib/format.ts`(formatDateTime/formatRelativeAge/formatDuration/shortenImageRef), `>2`/`>=3` 불일치를 `>=3` 으로 통일.
 `formatDateTime`(3곳, 2개 동일), `formatCreatedAt`, `formatAge`, `formatDuration`, `shortenImageName`/`shortenImage`(미묘하게 `>2` vs `>=3` 불일치)가 페이지마다 복붙.
 **권장** — `src/lib/format.ts`(`formatDateTime`/`formatRelativeAge`/`formatDuration`/`shortenImageRef`)로 통합하고 `>2`/`>=3` 동작 차이 정리.
 
-### WEB-8 — `PageBtn` + 페이지네이션 블록 + 선택 로직 중복 · **Medium**
+### WEB-8 — `PageBtn` + 페이지네이션 블록 + 선택 로직 중복 · **Medium** · ✅ 완료
+> ✅ **완료(2026-06-11)**: `<Pagination>` + `useTableSelection<T,K>` 추출, 두 리스트 페이지 마이그레이션.
 `PageBtn` 이 `BuildListPage`/`DockerfileListPage` 에 동일, 주변 페이지네이션 JSX(rows-per-page Select, "of N pages", 4 버튼)도 중복. `toggleAll`/`toggleOne`/`buildKey` 선택 Set 로직도 양쪽 거의 동일.
 **권장** — `<Pagination>` 컴포넌트 + `useTableSelection<T>` 훅 추출(두 페이지는 이미 `useTableSort`/`SortableHead`/`Table` 공유).
 
-### WEB-9 — CR 처리의 타입 안전성 공백 · **Medium**
+### WEB-9 — CR 처리의 타입 안전성 공백 · **Medium** · ✅ 완료
+> ✅ **완료(2026-06-11)**: `ImageBuildSpec`/`ImageBuildCrInput` 타입화, `cr: unknown`/`as Record` 캐스트·미사용 `volumes` prop 제거.
 `createImageBuild(namespace, cr: unknown)`, `ImageBuildCr.spec: { targetImage; [key]:unknown }`, `src.spec.imageLabels as Record<string,string>` 캐스트, `InstructionBlock` 의 `volumes?: unknown`(선언만 되고 미사용).
 **권장** — 제대로 된 `ImageBuildSpec` 인터페이스(`dockerfileContent`/`targetImage`/`imageLabels?`/`pushSecretRef?`/`buildContextPvc?`/`buildContextSubPath?`/`buildTimeoutSeconds?`)와 생성용 `ImageBuildCrInput` 타입 정의 → `createImageBuild(cr: ImageBuildCrInput)`. 미사용 `volumes` prop 제거 또는 실제 사용.
 
-### WEB-10 — `run`/`rebuild` 의 CR 조립 중복 · **Medium**
+### WEB-10 — `run`/`rebuild` 의 CR 조립 중복 · **Medium** · ✅ 완료
+> ✅ **완료(2026-06-11)**: `lib/image-build-cr.ts` `makeImageBuildCr` 헬퍼로 run/rebuild CR 조립 통합.
 두 함수가 동일 `{apiVersion, kind, metadata:{generateName:'imagebuild-', namespace, labels, annotations}, spec}` 골격을 각자 조립.
 **권장** — `makeImageBuildCr({namespace, labels, annotations, spec})` 헬퍼 추출(둘은 라벨 셋·spec 출처만 다름).
 
-### WEB-11 — 폴링·timeout 경계의 매직 넘버 · **Medium**
+### WEB-11 — 폴링·timeout 경계의 매직 넘버 · **Medium** · ✅ 완료
+> ✅ **완료(2026-06-11)**: `lib/constants.ts`(BUILD_POLL_MS/LOG_POLL_MS/DEFAULT_STALE_MS/BUILD_TIMEOUT_*).
 `useBuilds.ts` 의 `3000`/`5000`, 타임아웃 clamp `Math.min(360, Math.max(1, …||60))`·`*60` 이 input 의 `min={1} max={360}` 와 따로 존재, `useK8s.ts` 의 `5*60*1000` staleTime 중복.
 **권장** — `BUILD_POLL_MS`/`LOG_POLL_MS`/`DEFAULT_STALE_MS`/`BUILD_TIMEOUT_{MIN,MAX,DEFAULT}_MINUTES` named 상수로 input·clamp 공유.
 
-### WEB-12 — 쿼리 키 형태 비일관 · **Medium**
+### WEB-12 — 쿼리 키 형태 비일관 · **Medium** · ✅ 완료
+> ✅ **완료(2026-06-11)**: `lib/query-keys.ts` `buildKeys.{all,list,detail,logs}` 채택.
 `[KEY,{project}]` vs `[KEY,namespace,name]`(위치형) vs `[...,'logs']` 혼재. `useRunBuild` 의 `invalidateQueries({queryKey:[KEY]})` 가 두 형태 prefix 매칭에 의존.
 **권장** — TanStack 관례의 쿼리 키 팩토리(`buildKeys.list(project)`/`detail(ns,name)`/`logs(ns,name)`) 채택.
 
-### WEB-13 — mutation 오류 처리 비일관 · **Medium**
+### WEB-13 — mutation 오류 처리 비일관 · **Medium** · ✅ 완료
+> ✅ **완료(2026-06-11)**: EDIT `startBuild` 와 rebuild 호출에 onError 토스트 추가.
 create/update mutation 엔 `onError` 토스트가 있으나 **EDIT 경로의 `runBuildMutation` 엔 `onError` 없음** → 실패가 조용히 무시(토스트 없음, 다이얼로그 유지). `useRebuild` 도 오류 표면 없음 → `BuildDetailPage` 는 `onSuccess` 만 전달해 재빌드 실패가 비가시.
 **권장** — QueryClient 기본 `onError` 또는 `useMutationToast` 래퍼로 표준화. 최소한 EDIT `startBuild` 와 rebuild 호출에 `onError` 추가.
 
-### WEB-14 — `(e as Error).message` 캐스트 반복 · **Medium**
+### WEB-14 — `(e as Error).message` 캐스트 반복 · **Medium** · ✅ 완료
+> ✅ **완료(2026-06-11)**: `lib/errors.ts` `getErrorMessage(e: unknown)` + ProblemDetail 타입으로 캐스트 통일.
 `(e as Error).message` 가 에디터 토스트 4곳, `api-client.ts` 는 무타입 `any` 에서 `message`/`detail` 을 읽음.
 **권장** — `getErrorMessage(e: unknown): string` 유틸로 통일, ProblemDetail 형태를 타입화.
 
-### WEB-15 — form↔editor 전환 시 미지원 지시자 소실 · **Low**
+### WEB-15 — form↔editor 전환 시 미지원 지시자 소실 · **Low** · ✅ 완료
+> ✅ **완료(2026-06-11)**: 에디터→폼 전환 시 데이터 소실 경고(window.confirm) 가드 추가.
 `switchToForm` 이 재파싱·재생성하며 ENTRYPOINT/ARG/multistage 를 드롭(주석에 문서화됨). 의도적이나 데이터 소실 footgun — 전환 시 경고 가드 검토.
 
-### WEB-16 — `instrTypeOptions` 라벨/설명/아이콘 한국어 하드코딩 · **Low**
+### WEB-16 — `instrTypeOptions` 라벨/설명/아이콘 한국어 하드코딩 · **Low** · ✅ 완료
+> ✅ **완료(2026-06-11)**: instruction-type 옵션 라벨/설명을 i18n 으로.
 WEB-5 의 i18n 공백이 표시 문자열을 config 배열에 결합. i18n 으로 접기.
 
-### WEB-17 — `getStepStatus` 가 매 호출 phase 배열 재할당 · **Low**
+### WEB-17 — `getStepStatus` 가 매 호출 phase 배열 재할당 · **Low** · ✅ 완료
+> ✅ **완료(2026-06-11)**: phase 배열을 모듈 상수로 호이스트(WEB-3 의 build-phase 로 흡수).
 `['Pending','Preparing','Building','Push']` 를 함수 내부에서 step·render 마다 할당. 모듈 상수로 호이스트(WEB-3 연계).
 
-### WEB-18 — `BuildDetailPage` 의 날짜 포맷만 `toLocaleString('ko-KR')` · **Low**
+### WEB-18 — `BuildDetailPage` 의 날짜 포맷만 `toLocaleString('ko-KR')` · **Low** · ✅ 완료
+> ✅ **완료(2026-06-11)**: BuildDetailPage 날짜 포맷을 `lib/format` 으로 통일.
 다른 두 페이지의 수동 패딩 방식과 같은 개념(생성 시각)에 다른 포맷. `lib/format.ts`(WEB-7)로 통일.
 
 ### WEB-19 — `ImageSelector` catalog 탭 placeholder + 죽은 NGC/HF 코드 · **Low** · ✅ 완료
 > ✅ **완료(2026-06-11)**: catalog 탭·`useNgc*`/`useHuggingface*` 훅·k8s api 메서드·관련 타입·MSW 핸들러 제거(외부 레지스트리 제거와 함께).
 `RegistryTab='catalog'` 가 영구 "준비 중" placeholder. 대응하는 `useNgc*`/`useHuggingface*` 훅과 `k8s.ts` 레지스트리 메서드가 **어느 컴포넌트에서도 import 되지 않는 dead code** 로 보임 — 확인 후 catalog 가 보류면 제거.
 
-### WEB-20 — env 읽기 중복 · **Low**
+### WEB-20 — env 읽기 중복 · **Low** · ✅ 완료
+> ✅ **완료(2026-06-11)**: `lib/env.ts` 타입화 config(API_BASE_URL/HARBOR_URL).
 `VITE_HARBOR_URL` 이 에디터·`ImageSelector` 양쪽, `API_BASE_URL` 유도가 `k8s.ts`·`api-client.ts`·`useBuilds.ts` 에 반복.
 **권장** — `src/lib/env.ts` 단일 모듈에서 타입화된 config 상수 export.
 
-### WEB-21 — `nextInstrId` 모듈 레벨 가변 카운터 · **Low**
+### WEB-21 — `nextInstrId` 모듈 레벨 가변 카운터 · **Low** · ✅ 완료
+> ✅ **완료(2026-06-11)**: `nextInstrId` 모듈 카운터 → `crypto.randomUUID()`.
 모듈 수명 동안 단조 증가하는 공유 가변 상태. `useRef`/`crypto.randomUUID()` 가 더 깔끔.
 
 ---
