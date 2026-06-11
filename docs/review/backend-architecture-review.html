@@ -103,9 +103,10 @@ ul.good li::before{content:"✓";position:absolute;left:.1em;color:var(--green);
 <div class='rec'><b>권장</b> — 이미 의존성에 있는 <code>client-java-extended</code> 의 <code>SharedIndexInformer</code> + <code>Controller</code>(workqueue)로 전환. resyncPeriod 로 주기적 재조정 보장 + Lister 캐시로 read 부하 감소.</div>
 <div class='rec'><b>✅ 구현 완료 (2026-06-11)</b> — 직접 watch 루프(<code>ImageBuildWatcher</code>/<code>JobWatcher</code>, 삭제)를 <code>SharedIndexInformer</code>+<code>Controller</code>(workqueue)로 전환(<code>InformerControllerConfiguration</code>, <code>ControllerRunner</code>). <code>resyncPeriodSeconds=45</code> 로 캐시된 전 CR 주기 재조정 → 단일 MODIFIED 유실에도 <code>Building</code> 영구 정지 안 됨. 재시작 시 initial LIST 로 전체 enqueue → <code>status.phase</code> 에서 이어서 재조정.</div></div>
 
-<div class='finding h'><span class='t'><span class='sev h'>High</span> C-2 — leader election 부재 + HPA 동봉</span>
+<div class='finding h'><span class='t'><span class='sev ok'>완료</span> <span class='sev h'>High</span> C-2 — leader election 부재 + HPA 동봉</span>
 리더 선출이 없다. 현재 <code>replicaCount:1</code> 로 안전하나, 차트에 <b>HPA 템플릿이 동봉</b>되고 <code>maxReplicas:100</code> 이다. 누군가 autoscaling 을 켜면 모든 replica 가 같은 CR 을 reconcile → ConfigMap/Job 중복·status patch 경합.
-<div class='rec'><b>권장</b> — (a) 컨트롤러 차트에서 HPA 제거 + 단일 replica 고정 명시, 또는 (b) HA 필요 시 <code>LeaderElector</code>(Lease) 도입 후 다중 replica 허용. 컨트롤러는 CPU 스케일 대상이 아니므로 (a) 적합.</div></div>
+<div class='rec'><b>권장</b> — (a) 컨트롤러 차트에서 HPA 제거 + 단일 replica 고정 명시, 또는 (b) HA 필요 시 <code>LeaderElector</code>(Lease) 도입 후 다중 replica 허용. 컨트롤러는 CPU 스케일 대상이 아니므로 (a) 적합.</div>
+<div class='rec'><b>✅ 구현 완료 (2026-06-11, 권장안 a)</b> — <code>hpa.yaml</code> 삭제 + <code>values.yaml</code> autoscaling 블록 제거. <code>deployment.yaml</code> 는 <code>replicas: {{ .Values.replicaCount }}</code> 고정 + render 가드(<code>replicaCount>1</code> 이면 <code>fail</code>: "no leader election; replicaCount must be 1"). <code>helm template</code> 으로 기본 replicas:1·HPA 0개, replicaCount=2 시 render 실패 확인. HA 필요 시 LeaderElector 도입은 별도 작업.</div></div>
 
 <div class='finding m'><span class='t'><span class='sev ok'>완료</span> <span class='sev m'>Medium</span> C-3 — 두 watcher 가 같은 CR 동시 reconcile (키 직렬화 없음)</span>
 <code>ImageBuildWatcher</code> 와 <code>JobWatcher</code> 가 각자 스레드에서 같은 <code>reconcile(ns,name)</code> 을 직접 호출한다. 동일 빌드의 두 이벤트가 동시에 오면 병렬 실행(TOCTOU, status patch interleave). 409 가드로 치명적 결과는 대체로 회피되나 키 단위 직렬화 보장이 없다.
@@ -285,7 +286,7 @@ NGC/HuggingFace 검색은 외부 인터넷 호출이다(<code>required=false</co
 <tr><td>2</td><td><b>B-3</b> 리비전 채번 락 + 예외 분기</td><td><span class='sev h'>High</span></td><td>정합성</td><td>소~중</td></tr>
 <tr><td>3</td><td><b>A-4</b> OpenSearch 필터 <code>match_phrase</code> 전환</td><td><span class='sev h'>High</span></td><td>정확성</td><td>소</td></tr>
 <tr><td>4 <span class='sev ok'>완료</span></td><td><b>C-1/C-3</b> SharedInformer+workqueue <i>(2026-06-11, C-4 동반)</i></td><td><span class='sev h'>High</span></td><td>k8s 패턴</td><td>중</td></tr>
-<tr><td>5</td><td><b>C-2</b> HPA 제거(또는 leader election)</td><td><span class='sev h'>High</span></td><td>k8s 패턴</td><td>소</td></tr>
+<tr><td>5 <span class='sev ok'>완료</span></td><td><b>C-2</b> HPA 제거(또는 leader election) <i>(2026-06-11, 권장안 a)</i></td><td><span class='sev h'>High</span></td><td>k8s 패턴</td><td>소</td></tr>
 <tr><td>6</td><td><b>A-5</b> 인증 결과 캐싱</td><td><span class='sev h'>High</span></td><td>성능/가용성</td><td>소</td></tr>
 <tr><td>7</td><td><b>A-6/A-7</b> SSE 스레드풀 경계화 · exec 타임아웃</td><td><span class='sev m'>Medium</span></td><td>안정성</td><td>소~중</td></tr>
 <tr><td>8 <span class='sev ok'>부분</span></td><td><b>C-5</b> Kaniko deadline·resources <i>(deadline 완료 2026-06-11, resources 잔여)</i></td><td><span class='sev m'>Medium</span></td><td>안정성</td><td>소</td></tr>

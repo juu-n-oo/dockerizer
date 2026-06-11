@@ -79,9 +79,10 @@
 - 권장: 이미 의존성에 있는 **`client-java-extended` 의 `SharedIndexInformer` + `Controller`(workqueue)** 로 전환. resyncPeriod(예: 30~60s)를 주면 주기적 재조정이 보장되고, 캐시 Lister 로 read 부하도 준다.
 - **구현**: 직접 watch 루프(`ImageBuildWatcher`/`JobWatcher`, 삭제)를 `SharedIndexInformer`+`Controller`(workqueue)로 전환(`InformerControllerConfiguration`, `ControllerRunner`). `resyncPeriodSeconds=45`(`ControllerProperties`)로 캐시된 전 CR 이 주기 재조정 → 단일 MODIFIED 유실에도 `Building` 영구 정지 안 됨. 재시작 시 initial LIST 로 전체 enqueue 되어 `status.phase` 에서 이어서 재조정.
 
-#### C-2 🟠 leader election 부재 + HPA 동봉 (다중 replica 시 중복 reconcile)
+#### C-2 🟠 leader election 부재 + HPA 동봉 (다중 replica 시 중복 reconcile) — ✅ 구현 완료 (2026-06-11, 권장안 a)
 컨트롤러에 **리더 선출이 없다.** 현재 `replicaCount: 1` 로 안전하지만, 차트에 **HPA 템플릿이 동봉**되어 있고 `autoscaling.maxReplicas: 100` 이다(`hpa.yaml`, `values.yaml`). 누군가 `autoscaling.enabled=true` 로 켜거나 replica 를 늘리면, **모든 replica 가 각자 watch·reconcile** 해서 동일 CR 에 대해 ConfigMap/Job 중복 생성·status patch 경합이 발생한다(409 가드로 일부만 방어됨).
 - 권장(택1): (a) 컨트롤러 차트에서 **HPA 제거 + 단일 replica 고정**을 명시, 또는 (b) HA 가 필요하면 `client-java-extended` 의 **`LeaderElector`(Lease 기반)** 도입 후에만 다중 replica 허용. 컨트롤러는 CPU 로 스케일하는 워크로드가 아니므로 (a) 가 적합.
+- **구현 (권장안 a)**: `helm/imagebuild-controller/templates/hpa.yaml` 삭제, `values.yaml` 의 `autoscaling` 블록 제거. `deployment.yaml` 에서 autoscaling 분기를 없애고 `replicas: {{ .Values.replicaCount }}` 고정 + **render 단계 가드**(`replicaCount>1` 이면 `fail` — "no leader election; replicaCount must be 1") 추가. `replicaCount` 주석에 리더 선출 부재·다중 replica 위험 명시. `helm template` 으로 기본값 `replicas:1`·HPA 0개, `--set replicaCount=2` 시 render 실패 확인. HA 필요 시 LeaderElector 도입은 별도 작업으로 남김.
 
 #### C-3 🟡 두 watcher 가 같은 CR 을 동시 reconcile — 키 직렬화 없음 — ✅ 구현 완료 (2026-06-11)
 `ImageBuildWatcher` 와 `JobWatcher` 가 **서로 다른 스레드에서 같은 `reconciler.reconcile(ns,name)` 을 직접 호출**한다. 동일 빌드에 대해 두 이벤트가 동시에 들어오면 reconcile 이 병렬 실행될 수 있다(존재 검사 후 생성하는 TOCTOU, status patch interleave).
@@ -284,7 +285,7 @@ NGC/HuggingFace 검색은 **외부 인터넷 호출**이다(`nvcr.io`, catalog A
 | 2 | **B-3** 리비전 채번 락 + 예외 메시지 분기 | 🟠 | 정합성 | 소~중 |
 | 3 | **A-4** OpenSearch 필터 `match_phrase` 전환 | 🟠 | 정확성 | 소 |
 | ~~4~~ | ~~**C-1/C-3** 컨트롤러 SharedInformer+workqueue 전환~~ ✅ 완료(2026-06-11, C-4 동반) | 🟠 | k8s 패턴 | 중 |
-| 5 | **C-2** HPA 제거(또는 leader election) | 🟠 | k8s 패턴 | 소 |
+| ~~5~~ | ~~**C-2** HPA 제거(또는 leader election)~~ ✅ 완료(2026-06-11, 권장안 a: HPA 제거+단일 replica 고정) | 🟠 | k8s 패턴 | 소 |
 | 6 | **A-5** 인증 결과 캐싱 | 🟠 | 성능/가용성 | 소 |
 | 7 | **A-6/A-7** SSE 스레드풀 경계화 · exec 타임아웃 | 🟡 | 안정성 | 소~중 |
 | 8 | **C-5** Kaniko activeDeadlineSeconds·resources — 🟢 activeDeadlineSeconds 완료(2026-06-11), **resources 잔여** | 🟡 | 안정성 | 소 |
